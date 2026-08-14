@@ -17,8 +17,7 @@ def test_returns_a_business():
     response = client.get("/businesses")
 
     assert response.status_code == 200
-    assert response.json() == {"businesses": [{name: "Barber"}]}
+    assert response.json() == {"businesses": [{"name": "Barber"}]}
 
 def save_business(name: str):
-    client.post("/businessess", {name: name})
-    
+    client.post("/businesses", json={"name": name})
