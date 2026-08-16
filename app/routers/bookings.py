@@ -35,9 +35,16 @@ def _maybe_idempotent(
 
 @router.get("/bookings")
 def get_bookings(
+    customer_name: str | None = None,
     repository: InMemoryBookingRepository = Depends(get_booking_repository),
 ) -> dict[str, list[dict[str, str | None]]]:
-    return {"bookings": repository.list()}
+    bookings = repository.list()
+    if customer_name is not None:
+        logger.info("tool_request tool=get_customer_bookings customer_name=%s", customer_name)
+        needle = customer_name.lower()
+        bookings = [b for b in bookings if needle in b["customer_name"].lower()]
+        logger.info("tool_response tool=get_customer_bookings result_count=%d", len(bookings))
+    return {"bookings": bookings}
 
 
 @router.get("/bookings/{booking_id}")

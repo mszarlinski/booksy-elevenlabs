@@ -165,3 +165,28 @@ def test_reschedule_booking_does_not_repeat_mutation_on_retry():
         assert counting_repo.reschedule_calls == 1
     finally:
         app.dependency_overrides.pop(get_booking_repository, None)
+
+
+def test_get_customer_bookings_filters_case_insensitive_substring():
+    client.post(
+        "/bookings",
+        json={"customer_name": "Judy Smith", "service": "Haircut", "slot": "2026-08-23T09:00"},
+    )
+    client.post(
+        "/bookings",
+        json={"customer_name": "Mallory", "service": "Shave", "slot": "2026-08-23T10:00"},
+    )
+
+    response = client.get("/bookings", params={"customer_name": "judy"})
+
+    assert response.status_code == 200
+    bookings = response.json()["bookings"]
+    assert len(bookings) == 1
+    assert bookings[0]["customer_name"] == "Judy Smith"
+
+
+def test_get_customer_bookings_returns_empty_list_when_no_match():
+    response = client.get("/bookings", params={"customer_name": "nobody-with-this-name"})
+
+    assert response.status_code == 200
+    assert response.json() == {"bookings": []}
