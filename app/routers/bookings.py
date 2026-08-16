@@ -1,10 +1,9 @@
 import logging
-from collections.abc import Callable
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from app.idempotency import InMemoryIdempotencyStore, get_idempotency_store
+from app.idempotency import InMemoryIdempotencyStore, get_idempotency_store, maybe_idempotent
 from app.repositories.bookings import InMemoryBookingRepository, get_booking_repository
 
 logger = logging.getLogger(__name__)
@@ -23,16 +22,6 @@ class RescheduleBookingRequest(BaseModel):
     slot: str
 
 
-def _maybe_idempotent(
-    idempotency_key: str | None,
-    idempotency: InMemoryIdempotencyStore,
-    mutate: Callable[[], dict[str, str | None]],
-) -> dict[str, str | None]:
-    if idempotency_key is None:
-        return mutate()
-    return idempotency.get_or_create(idempotency_key, mutate)
-
-
 @router.get("/bookings")
 def get_bookings(
     customer_name: str | None = None,
@@ -40,7 +29,7 @@ def get_bookings(
 ) -> dict[str, list[dict[str, str | None]]]:
     bookings = repository.list()
     if customer_name is not None:
-        logger.info("tool_request tool=get_customer_bookings customer_name=%s", customer_name)
+        logger.info("tool_request tool=get_customer_bookings customer_name_filter=true")
         needle = customer_name.lower()
         bookings = [b for b in bookings if needle in b["customer_name"].lower()]
         logger.info("tool_response tool=get_customer_bookings result_count=%d", len(bookings))
@@ -70,7 +59,7 @@ def create_booking(
     repository: InMemoryBookingRepository = Depends(get_booking_repository),
     idempotency: InMemoryIdempotencyStore = Depends(get_idempotency_store),
 ) -> dict[str, str | None]:
-    return _maybe_idempotent(
+    return maybe_idempotent(
         idempotency_key,
         idempotency,
         lambda: repository.add(body.customer_name, body.service, body.slot, body.employee_id),
@@ -84,7 +73,7 @@ def cancel_booking(
     repository: InMemoryBookingRepository = Depends(get_booking_repository),
     idempotency: InMemoryIdempotencyStore = Depends(get_idempotency_store),
 ) -> dict[str, str | None]:
-    return _maybe_idempotent(
+    return maybe_idempotent(
         idempotency_key, idempotency, lambda: repository.cancel(booking_id)
     )
 
@@ -97,6 +86,6 @@ def reschedule_booking(
     repository: InMemoryBookingRepository = Depends(get_booking_repository),
     idempotency: InMemoryIdempotencyStore = Depends(get_idempotency_store),
 ) -> dict[str, str | None]:
-    return _maybe_idempotent(
+    return maybe_idempotent(
         idempotency_key, idempotency, lambda: repository.reschedule(booking_id, body.slot)
     )

@@ -42,3 +42,13 @@ _store = InMemoryIdempotencyStore()
 
 def get_idempotency_store() -> InMemoryIdempotencyStore:
     return _store
+
+
+def maybe_idempotent(
+    idempotency_key: str | None,
+    idempotency: InMemoryIdempotencyStore,
+    mutate: Callable[[], dict],
+) -> dict:
+    if idempotency_key is None:
+        return mutate()
+    return idempotency.get_or_create(idempotency_key, mutate)

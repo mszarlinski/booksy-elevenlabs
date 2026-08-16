@@ -1,6 +1,6 @@
 # VBOOK-09 — Connect ElevenLabs tools to FastAPI — Design
 
-**Story:** [VBOOK-09](../../backlog/VBOOK-09-connect-elevenlabs-tools-to-fastapi.md)
+**Story:** [VBOOK-09](../../done/VBOOK-09-connect-elevenlabs-tools-to-fastapi.md)
 **Architecture decision:** [ADR 0001](../../adr/0001-elevenlabs-tool-layer-architecture.md)
 
 ## Context

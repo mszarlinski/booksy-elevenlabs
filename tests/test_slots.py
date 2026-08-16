@@ -89,3 +89,17 @@ def test_raises_value_error_for_malformed_time():
         generate_available_slots(
             SERVICE, EMPLOYEES, bookings=[], date="2026-08-20", earliest_time="not-a-time"
         )
+
+
+def test_raises_value_error_for_time_with_seconds():
+    with pytest.raises(ValueError):
+        generate_available_slots(
+            SERVICE, EMPLOYEES, bookings=[], date="2026-08-20", earliest_time="09:00:00"
+        )
+
+
+def test_raises_value_error_for_time_with_utc_offset():
+    with pytest.raises(ValueError):
+        generate_available_slots(
+            SERVICE, EMPLOYEES, bookings=[], date="2026-08-20", earliest_time="09:00+00:00"
+        )

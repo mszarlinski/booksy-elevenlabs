@@ -3,8 +3,6 @@ import os
 from dotenv import load_dotenv
 from elevenlabs import ElevenLabs
 
-DEFAULT_BASE_URL = "http://localhost:8000"
-
 TOOL_DEFINITIONS = [
     {
         "name": "search_services",
@@ -131,7 +129,10 @@ def build_tool_configs(base_url: str) -> list[dict]:
 def main() -> None:
     load_dotenv()
     api_key = os.environ["ELEVENLABS_API_KEY"]
-    base_url = os.environ.get("API_BASE_URL", DEFAULT_BASE_URL)
+    # No localhost default: ElevenLabs' hosted webhook tools call this URL over
+    # the public internet, so a silently-applied localhost fallback would look
+    # like it worked here and then fail to reach the backend during a real call.
+    base_url = os.environ["API_BASE_URL"]
 
     client = ElevenLabs(api_key=api_key)
 
