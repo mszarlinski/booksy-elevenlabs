@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+
 class InMemoryEmployeeRepository:
     def __init__(self) -> None:
         self._employees: list[dict[str, str | list[str]]] = [
