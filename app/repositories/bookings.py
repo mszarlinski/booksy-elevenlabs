@@ -85,6 +85,72 @@ class BookingRepository(BaseRepository[Booking]):
         """
         return start_time + timedelta(minutes=duration_minutes)
 
+    async def check_and_create_booking(
+        self,
+        service_id: str,
+        employee_id: str | None,
+        start_time: datetime,
+        duration_minutes: int,
+        booking_data: dict,
+    ) -> Booking:
+        """
+        Check for overlapping bookings and create a new booking atomically.
+
+        Uses pessimistic locking (SELECT ... FOR UPDATE) to prevent double-booking:
+        1. Locks all bookings for the same service within the time window
+        2. If any overlapping booking found, raises conflict
+        3. If clear, creates the booking atomically
+
+        Args:
+            service_id: ID of the service being booked
+            employee_id: ID of the employee (may be None)
+            start_time: Start time of the booking
+            duration_minutes: Duration of the service in minutes
+            booking_data: Dictionary with booking details (id, customer_name, etc.)
+
+        Returns:
+            Created Booking entity
+
+        Raises:
+            HTTPException(409): If overlapping booking found
+        """
+        # Calculate the end time of this booking
+        end_time = self._calculate_booking_end_time(start_time, duration_minutes)
+
+        # Query for overlapping bookings with FOR UPDATE lock
+        # An overlap occurs if:
+        # - Booking is for the same service
+        # - Booking's start_time is before our end_time AND
+        # - Booking's end_time is after our start_time
+        # We need to calculate each existing booking's end_time to check overlap
+
+        stmt = (
+            select(Booking)
+            .where(Booking.service_id == service_id)
+            .with_for_update()
+        )
+        result = await self.session.execute(stmt)
+        existing_bookings = result.scalars().all()
+
+        # Check for overlaps with the new booking time window
+        for booking in existing_bookings:
+            # For existing booking: check if it overlaps with [start_time, end_time)
+            # Existing booking occupies: [booking.start_time, booking.start_time + duration)
+            # To get duration, we need the service - but we already have duration_minutes
+            # We'll assume all bookings use the same service (they do in this query)
+            booking_end_time = self._calculate_booking_end_time(booking.start_time, duration_minutes)
+
+            # Check overlap: existing_start < new_end AND new_start < existing_end
+            if booking.start_time < end_time and start_time < booking_end_time:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Slot already booked"
+                )
+
+        # No conflicts found, create the booking
+        booking = await self.create(booking_data)
+        return booking
+
 
 # In-memory repository used by the existing (non-DB-backed) routers.
 class InMemoryBookingRepository:
