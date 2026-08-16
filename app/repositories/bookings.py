@@ -1,10 +1,12 @@
 """Repository for Booking entity."""
 
+from datetime import datetime, timedelta
 from typing import List
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException
 from app.models import Booking
 from app.repositories.base import BaseRepository
 
@@ -69,6 +71,19 @@ class BookingRepository(BaseRepository[Booking]):
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+    def _calculate_booking_end_time(self, start_time: datetime, duration_minutes: int) -> datetime:
+        """
+        Calculate the end time of a booking.
+
+        Args:
+            start_time: The start time of the booking
+            duration_minutes: Duration of the service in minutes
+
+        Returns:
+            The calculated end time (start_time + duration_minutes)
+        """
+        return start_time + timedelta(minutes=duration_minutes)
 
 
 # In-memory repository used by the existing (non-DB-backed) routers.
