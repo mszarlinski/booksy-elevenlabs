@@ -105,6 +105,31 @@ def test_cancel_booking_does_not_repeat_mutation_on_retry():
         app.dependency_overrides.pop(get_booking_repository, None)
 
 
+def test_create_booking_accepts_optional_employee_id():
+    response = client.post(
+        "/bookings",
+        json={
+            "customer_name": "Grace",
+            "service": "Haircut",
+            "slot": "2026-08-21T10:00",
+            "employee_id": "emp-alice",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["employee_id"] == "emp-alice"
+
+
+def test_create_booking_without_employee_id_defaults_to_none():
+    response = client.post(
+        "/bookings",
+        json={"customer_name": "Heidi", "service": "Haircut", "slot": "2026-08-21T11:00"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["employee_id"] is None
+
+
 def test_reschedule_booking_does_not_repeat_mutation_on_retry():
     counting_repo = CountingBookingRepository()
     app.dependency_overrides[get_booking_repository] = lambda: counting_repo

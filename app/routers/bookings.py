@@ -13,6 +13,7 @@ class CreateBookingRequest(BaseModel):
     customer_name: str
     service: str
     slot: str
+    employee_id: str | None = None
 
 
 class RescheduleBookingRequest(BaseModel):
@@ -22,8 +23,8 @@ class RescheduleBookingRequest(BaseModel):
 def _maybe_idempotent(
     idempotency_key: str | None,
     idempotency: InMemoryIdempotencyStore,
-    mutate: Callable[[], dict[str, str]],
-) -> dict[str, str]:
+    mutate: Callable[[], dict[str, str | None]],
+) -> dict[str, str | None]:
     if idempotency_key is None:
         return mutate()
     return idempotency.get_or_create(idempotency_key, mutate)
@@ -32,7 +33,7 @@ def _maybe_idempotent(
 @router.get("/bookings")
 def get_bookings(
     repository: InMemoryBookingRepository = Depends(get_booking_repository),
-) -> dict[str, list[dict[str, str]]]:
+) -> dict[str, list[dict[str, str | None]]]:
     return {"bookings": repository.list()}
 
 
@@ -42,11 +43,11 @@ def create_booking(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     repository: InMemoryBookingRepository = Depends(get_booking_repository),
     idempotency: InMemoryIdempotencyStore = Depends(get_idempotency_store),
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     return _maybe_idempotent(
         idempotency_key,
         idempotency,
-        lambda: repository.add(body.customer_name, body.service, body.slot),
+        lambda: repository.add(body.customer_name, body.service, body.slot, body.employee_id),
     )
 
 
@@ -56,7 +57,7 @@ def cancel_booking(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     repository: InMemoryBookingRepository = Depends(get_booking_repository),
     idempotency: InMemoryIdempotencyStore = Depends(get_idempotency_store),
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     return _maybe_idempotent(
         idempotency_key, idempotency, lambda: repository.cancel(booking_id)
     )
@@ -69,7 +70,7 @@ def reschedule_booking(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     repository: InMemoryBookingRepository = Depends(get_booking_repository),
     idempotency: InMemoryIdempotencyStore = Depends(get_idempotency_store),
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     return _maybe_idempotent(
         idempotency_key, idempotency, lambda: repository.reschedule(booking_id, body.slot)
     )
