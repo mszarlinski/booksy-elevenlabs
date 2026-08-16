@@ -1,5 +1,40 @@
+# Development configuration only - DO NOT use in production
+version: '3.8'
+
 services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: booksy-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-booksy}
+      POSTGRES_USER: ${POSTGRES_USER:-booksy_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-booksy_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-booksy_user} -d ${POSTGRES_DB:-booksy}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build: .
+    container_name: booksy-api
     ports:
       - "8000:8000"
+    environment:
+      # Passed as discrete components (not a pre-built DATABASE_URL) so the
+      # app can percent-encode reserved characters in the password itself.
+      POSTGRES_USER: ${POSTGRES_USER:-booksy_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-booksy_password}
+      POSTGRES_DB: ${POSTGRES_DB:-booksy}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
