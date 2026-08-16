@@ -88,6 +88,45 @@ TOOL_DEFINITIONS = [
         },
         "required_query_params": [],
     },
+    {
+        "name": "create_booking",
+        "description": (
+            "Create a real, permanent booking. Only call this AFTER reading the full "
+            "booking details (service, employee if one was chosen, and the exact date "
+            "and time) back to the customer and receiving explicit confirmation, such "
+            "as them saying 'yes' or 'book it'. Never call this speculatively or while "
+            "still exploring options with the customer."
+        ),
+        "method": "POST",
+        "path": "/bookings",
+        "body_params": {
+            "customer_name": {
+                "type": "string",
+                "description": "The customer's name.",
+            },
+            "service": {
+                "type": "string",
+                "description": "The name of the service being booked, e.g. 'Men's Haircut'.",
+            },
+            "slot": {
+                "type": "string",
+                "description": "The exact appointment start time, formatted YYYY-MM-DDTHH:MM.",
+            },
+            "employee_id": {
+                "type": "string",
+                "description": "Optional id of the employee performing the service.",
+            },
+            "confirmed": {
+                "type": "boolean",
+                "description": (
+                    "Must be true. Set this only after the customer has explicitly "
+                    "confirmed the booking details out loud; the backend rejects the "
+                    "request otherwise."
+                ),
+            },
+        },
+        "required_body_params": ["customer_name", "service", "slot", "confirmed"],
+    },
 ]
 
 SYSTEM_PROMPT = (
@@ -96,7 +135,12 @@ SYSTEM_PROMPT = (
     "customer asks for a specific staff member. Use search_available_slots to "
     "find open appointment times before suggesting one. Use get_booking or "
     "get_customer_bookings to answer questions about existing bookings. Do not "
-    "invent services, employees, or slots that were not returned by a tool."
+    "invent services, employees, or slots that were not returned by a tool. "
+    "Before booking, always read back the full details -- service, employee if "
+    "one was chosen, and the exact date and time -- and ask the customer to "
+    "confirm. Only call create_booking, with confirmed set to true, after the "
+    "customer has clearly said yes; if they hesitate, decline, or give an "
+    "ambiguous answer, do not call create_booking."
 )
 
 
@@ -105,7 +149,7 @@ def build_tool_configs(base_url: str) -> list[dict]:
     for tool in TOOL_DEFINITIONS:
         api_schema = {
             "url": f"{base_url}{tool['path']}",
-            "method": "GET",
+            "method": tool.get("method", "GET"),
         }
         if "path_params" in tool:
             api_schema["path_params_schema"] = tool["path_params"]
@@ -113,6 +157,12 @@ def build_tool_configs(base_url: str) -> list[dict]:
             api_schema["query_params_schema"] = {
                 "properties": tool["query_params"],
                 "required": tool.get("required_query_params", []),
+            }
+        if "body_params" in tool:
+            api_schema["request_body_schema"] = {
+                "type": "object",
+                "properties": tool["body_params"],
+                "required": tool.get("required_body_params", []),
             }
 
         configs.append(

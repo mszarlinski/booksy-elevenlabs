@@ -15,6 +15,7 @@ class CreateBookingRequest(BaseModel):
     customer_name: str
     service: str
     slot: str
+    confirmed: bool
     employee_id: str | None = None
 
 
@@ -59,11 +60,25 @@ def create_booking(
     repository: InMemoryBookingRepository = Depends(get_booking_repository),
     idempotency: InMemoryIdempotencyStore = Depends(get_idempotency_store),
 ) -> dict[str, str | None]:
-    return maybe_idempotent(
+    logger.info(
+        "tool_request tool=create_booking service=%s slot=%s employee_id=%s confirmed=%s",
+        body.service,
+        body.slot,
+        body.employee_id,
+        body.confirmed,
+    )
+    if not body.confirmed:
+        raise HTTPException(
+            status_code=400,
+            detail="booking must be explicitly confirmed by the customer before creation",
+        )
+    booking = maybe_idempotent(
         idempotency_key,
         idempotency,
         lambda: repository.add(body.customer_name, body.service, body.slot, body.employee_id),
     )
+    logger.info("tool_response tool=create_booking booking_id=%s", booking["id"])
+    return booking
 
 
 @router.post("/bookings/{booking_id}/cancel")

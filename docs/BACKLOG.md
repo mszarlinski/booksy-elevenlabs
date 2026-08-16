@@ -18,6 +18,7 @@ Each story lives in its own file under [`docs/backlog/`](backlog/).
 | [VBOOK-12](backlog/VBOOK-12-learn-asyncio-through-parallel-availability-search.md) | P1 | Learn asyncio through parallel availability search |
 | [VBOOK-13](backlog/VBOOK-13-create-a-proper-automated-test-suite.md) | P1 | Create a proper automated test suite |
 | [VBOOK-14](backlog/VBOOK-14-add-conversation-observability-and-evaluation.md) | P1 | Add conversation observability and evaluation |
+| [VBOOK-15](backlog/VBOOK-15-add-booking-holds-for-safer-voice-confirmation.md) | P1 | Add booking holds for safer voice confirmation |
 
 ## Recommended implementation order
 
