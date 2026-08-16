@@ -1,11 +1,13 @@
 """Repository for Booking entity."""
 
+from datetime import datetime, timedelta
 from typing import List
 from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.models import Booking
+from fastapi import HTTPException
+from app.models import Booking, Employee, Service
 from app.repositories.base import BaseRepository
 
 
@@ -69,6 +71,73 @@ class BookingRepository(BaseRepository[Booking]):
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+    def _calculate_booking_end_time(self, start_time: datetime, duration_minutes: int) -> datetime:
+        """
+        Calculate the end time of a booking.
+
+        Args:
+            start_time: The start time of the booking
+            duration_minutes: Duration of the service in minutes
+
+        Returns:
+            The calculated end time (start_time + duration_minutes)
+        """
+        return start_time + timedelta(minutes=duration_minutes)
+
+    async def check_and_create_booking(
+        self,
+        employee_id: str,
+        start_time: datetime,
+        duration_minutes: int,
+        booking_data: dict,
+    ) -> Booking:
+        """
+        Check for overlapping bookings and create a new booking atomically.
+
+        Uses pessimistic locking (SELECT ... FOR UPDATE) to prevent double-booking:
+        1. Locks the Employee row, serializing concurrent attempts for that
+           employee - locking Booking rows alone doesn't help when the
+           employee has no bookings yet, since FOR UPDATE only locks rows
+           it actually finds.
+        2. Checks all of the employee's bookings (across services) for a
+           time-window overlap, using each existing booking's own service
+           duration.
+        3. If clear, creates the booking within the same transaction.
+
+        Args:
+            employee_id: ID of the employee being booked
+            start_time: Start time of the booking
+            duration_minutes: Duration of the service being booked
+            booking_data: Dictionary with booking details (id, customer_name, etc.)
+
+        Returns:
+            Created Booking entity
+
+        Raises:
+            HTTPException(409): If overlapping booking found
+        """
+        await self.session.execute(
+            select(Employee.id).where(Employee.id == employee_id).with_for_update()
+        )
+
+        end_time = self._calculate_booking_end_time(start_time, duration_minutes)
+
+        stmt = (
+            select(Booking, Service.duration_minutes)
+            .join(Service, Booking.service_id == Service.id)
+            .where(Booking.employee_id == employee_id)
+        )
+        result = await self.session.execute(stmt)
+
+        for booking, existing_duration_minutes in result.all():
+            booking_end_time = self._calculate_booking_end_time(
+                booking.start_time, existing_duration_minutes
+            )
+            if booking.start_time < end_time and start_time < booking_end_time:
+                raise HTTPException(status_code=409, detail="Slot already booked")
+
+        return await self.create(booking_data)
 
 
 # In-memory repository used by the existing (non-DB-backed) routers.
