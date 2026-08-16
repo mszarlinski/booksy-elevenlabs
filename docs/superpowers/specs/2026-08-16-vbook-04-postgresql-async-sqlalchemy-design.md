@@ -405,7 +405,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.adapters.db.models import Base
 from app.adapters.db.session import get_session
 from app.main import app
-from tests.seed_data import seed_reference_data  # shared with scripts/seed_db.py
+from scripts.seed_data import seed_reference_data  # shared with scripts/seed_db.py
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql+asyncpg://booksy:booksy@localhost:5432/booksy_test"
@@ -448,10 +448,12 @@ the ad hoc `app.dependency_overrides[get_booking_repository] = ...` pattern
 test's booking from others) — that workaround is deleted since the new autouse fixture
 handles isolation for every test uniformly.
 
-`seed_reference_data` is factored into a small shared helper (e.g.
-`tests/seed_data.py`) so both `scripts/seed_db.py` and the test fixture insert identical
-businesses/services/employees from one source of truth, rather than duplicating the
-seed dataset in two places.
+`seed_reference_data` is factored into a small shared helper (`scripts/seed_data.py`,
+alongside `scripts/seed_db.py`) so both `scripts/seed_db.py` and the test fixture insert
+identical businesses/services/employees from one source of truth, rather than
+duplicating the seed dataset in two places. It lives under `scripts/`, not `tests/`, so
+the dependency points the right way — tests may import from production/tooling code,
+but tooling must never import from the test package.
 
 **Existing test files** (`test_businesses.py`, `test_bookings.py`, `test_employees.py`,
 `test_services.py`, `test_availability.py`, `test_slots.py`, `test_idempotency.py`) are
