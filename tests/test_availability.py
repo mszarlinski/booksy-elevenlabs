@@ -43,6 +43,7 @@ def test_search_available_slots_excludes_an_existing_booking():
                 "customer_name": "Trent",
                 "service": "Men's Haircut",
                 "slot": "2026-09-24T10:00",
+                "confirmed": True,
                 "employee_id": "emp-alice",
             },
         ).json()
