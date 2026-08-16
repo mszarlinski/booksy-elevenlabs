@@ -11,6 +11,7 @@ import os
 from typing import AsyncGenerator
 from urllib.parse import urlparse
 
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -76,11 +77,12 @@ def _get_database_url() -> str:
             database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
         # Validate the URL format
+        # Note: the raw value is intentionally omitted from the error message -
+        # it may contain the database password.
         if not _is_valid_database_url(database_url):
             raise ValueError(
-                f"Invalid DATABASE_URL format. Expected: "
-                f"postgresql+asyncpg://user:password@host:port/database. "
-                f"Got: {database_url}"
+                "Invalid DATABASE_URL format. Expected: "
+                "postgresql+asyncpg://user:password@host:port/database."
             )
         return database_url
 
@@ -110,7 +112,20 @@ def _get_database_url() -> str:
             ) from e
         raise
 
-    return f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
+    # Build via URL.create() rather than an f-string: it percent-encodes
+    # reserved characters (@, /, ?, #, ...) in the password, host, etc.,
+    # whereas interpolating them directly into the string breaks URL parsing.
+    # render_as_string(hide_password=False) is required here: plain str(url)
+    # masks the password as "***" for safe logging, which would silently
+    # produce a connection string with a literal "***" password.
+    return URL.create(
+        "postgresql+asyncpg",
+        username=postgres_user,
+        password=postgres_password,
+        host=postgres_host,
+        port=port,
+        database=postgres_db,
+    ).render_as_string(hide_password=False)
 
 
 def _create_engine() -> AsyncEngine:
@@ -159,7 +174,7 @@ def _create_engine() -> AsyncEngine:
         # Good for testing to avoid state leakage between tests
         engine = create_async_engine(
             database_url,
-            echo=os.getenv("SQL_ECHO", "true").lower() == "true",  # Log SQL queries
+            echo=os.getenv("SQL_ECHO", "false").lower() == "true",  # Log SQL queries (off by default)
             poolclass=NullPool,
         )
     else:
@@ -170,7 +185,7 @@ def _create_engine() -> AsyncEngine:
         # - pool_pre_ping: test connections before use (detects dead connections)
         engine = create_async_engine(
             database_url,
-            echo=os.getenv("SQL_ECHO", "true").lower() == "true",  # Log SQL queries
+            echo=os.getenv("SQL_ECHO", "false").lower() == "true",  # Log SQL queries (off by default)
             pool_size=pool_size,
             max_overflow=max_overflow,
             pool_recycle=pool_recycle,

@@ -96,7 +96,7 @@ The initial migration (`755a0269244c_create_initial_tables_business_employee_.py
 - **services**: Services offered by businesses
 - **bookings**: Customer bookings linking services and employees
 
-All tables use string UUIDs (36-character) as primary keys and have proper foreign key constraints with cascade delete.
+All tables use string UUIDs (36-character) as primary keys and have proper foreign key constraints. Cascade deletes (e.g. deleting a `Business` also deletes its `Employee`/`Service` rows) are enforced at the SQLAlchemy ORM layer (`cascade="all, delete-orphan"` on the relevant `relationship()`s in `app/models.py`), not via database-level `ON DELETE CASCADE` - deleting rows directly in SQL will not cascade.
 
 ## Troubleshooting
 

@@ -4,7 +4,7 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
+from sqlalchemy.engine import Connection, URL
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
@@ -46,7 +46,16 @@ def _get_database_url() -> str:
     postgres_port = os.getenv("POSTGRES_PORT", "5432")
     postgres_db = os.getenv("POSTGRES_DB", "booksy")
 
-    return f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
+    # render_as_string(hide_password=False) is required: plain str(url) masks
+    # the password as "***" for safe logging.
+    return URL.create(
+        "postgresql+asyncpg",
+        username=postgres_user,
+        password=postgres_password,
+        host=postgres_host,
+        port=int(postgres_port),
+        database=postgres_db,
+    ).render_as_string(hide_password=False)
 
 
 def run_migrations_offline() -> None:

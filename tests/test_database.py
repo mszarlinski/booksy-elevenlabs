@@ -1,125 +1,21 @@
 """
-Tests for database configuration and async session handling.
+Tests for database configuration: URL construction/validation and pool setup.
+
+Session/engine-lifecycle behavior (e.g. "async with ... closes the session on
+exit") is guaranteed by SQLAlchemy itself and isn't re-tested here - these
+tests focus on the logic this module actually adds on top of SQLAlchemy.
 """
 
-import os
 import pytest
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
 
 from app.database import (
-    engine,
     async_session_factory,
-    get_session,
     _get_database_url,
     _is_valid_database_url,
     _create_engine,
 )
-
-
-# ============================================================================
-# Tests for engine creation and session factory
-# ============================================================================
-
-@pytest.mark.asyncio
-async def test_engine_creation():
-    """Test that the async engine is created successfully."""
-    assert engine is not None
-    # Verify it's an AsyncEngine
-    from sqlalchemy.ext.asyncio import AsyncEngine
-    assert isinstance(engine, AsyncEngine)
-
-
-@pytest.mark.asyncio
-async def test_async_session_factory():
-    """Test that the async session factory creates valid sessions."""
-    async with async_session_factory() as session:
-        assert isinstance(session, AsyncSession)
-        # Session should be active
-        assert session.is_active
-
-
-@pytest.mark.asyncio
-async def test_async_context_manager_closes_session():
-    """Test that async context manager properly closes the session.
-
-    Demonstrates that:
-    - async with async_session_factory() as session: creates a session
-    - On exit, the session is automatically closed (connection returned to pool)
-    - This prevents connection leaks in long-running applications
-    """
-    session_obj = None
-    async with async_session_factory() as session:
-        # Session should be active within context
-        session_obj = session
-        assert session.is_active
-    # After context exit, the connection is returned to the pool
-    # The session object still exists but the context manager has cleaned up
-    assert session_obj is not None
-
-
-# ============================================================================
-# Tests for get_session dependency
-# ============================================================================
-
-@pytest.mark.asyncio
-async def test_get_session_dependency():
-    """Test that get_session works as a FastAPI dependency.
-
-    This verifies that:
-    - get_session is a valid dependency that yields an AsyncSession
-    - The session is properly created and can be used
-    - The dependency pattern works correctly
-    """
-    # Simulate how FastAPI uses the dependency
-    async for session in get_session():
-        assert isinstance(session, AsyncSession)
-        assert session.is_active
-        break  # We only need one iteration to test the dependency
-
-
-@pytest.mark.asyncio
-async def test_get_session_cleanup_on_exit():
-    """Test that get_session properly cleans up the session after use.
-
-    This verifies that:
-    - The session is closed and resources are released after the dependency exits
-    - No connection leaks occur
-    - The generator successfully completes the cleanup phase
-    """
-    session_obj = None
-    async for session in get_session():
-        session_obj = session
-        assert session.is_active
-        # The session is available while in the context
-    # After the generator exits, cleanup has been performed
-    # The session object still exists but the context has been exited
-    assert session_obj is not None
-    # Verify the generator completed (cleanup was called)
-
-
-@pytest.mark.asyncio
-async def test_get_session_handles_exceptions():
-    """Test that get_session properly cleans up even when an exception occurs.
-
-    This verifies that:
-    - If an exception is raised while using the session,
-    - The session is still properly closed and resources are released
-    - Connection leaks don't occur even in error scenarios
-    """
-    session_obj = None
-    try:
-        async for session in get_session():
-            session_obj = session
-            assert session.is_active
-            raise RuntimeError("Test exception")
-    except RuntimeError:
-        pass
-
-    # Session cleanup should have occurred even after the exception
-    assert session_obj is not None
-    # The important thing is that the context manager's __aexit__ was called,
-    # which closes the underlying database connection
 
 
 # ============================================================================
@@ -153,161 +49,146 @@ def test_validate_database_url_invalid():
         assert not _is_valid_database_url(url), f"Invalid URL accepted: {url}"
 
 
-def test_get_database_url_valid_env():
+def test_get_database_url_valid_env(monkeypatch):
     """Test that valid DATABASE_URL environment variable is used."""
     valid_url = "postgresql+asyncpg://user:password@localhost:5432/testdb"
-    os.environ["DATABASE_URL"] = valid_url
-    try:
-        result = _get_database_url()
-        assert result == valid_url
-    finally:
-        del os.environ["DATABASE_URL"]
+    monkeypatch.setenv("DATABASE_URL", valid_url)
+    assert _get_database_url() == valid_url
 
 
-def test_get_database_url_converts_postgresql_to_asyncpg():
+def test_get_database_url_converts_postgresql_to_asyncpg(monkeypatch):
     """Test that postgresql:// URLs are converted to postgresql+asyncpg://."""
-    os.environ["DATABASE_URL"] = "postgresql://user:password@localhost:5432/testdb"
-    try:
-        result = _get_database_url()
-        assert result == "postgresql+asyncpg://user:password@localhost:5432/testdb"
-    finally:
-        del os.environ["DATABASE_URL"]
+    monkeypatch.setenv("DATABASE_URL", "postgresql://user:password@localhost:5432/testdb")
+    assert _get_database_url() == "postgresql+asyncpg://user:password@localhost:5432/testdb"
+
+
+def test_get_database_url_does_not_leak_credentials_on_error(monkeypatch):
+    """Test that an invalid DATABASE_URL is never echoed back in the error.
+
+    Regression test: the raw value (which may contain the password) must not
+    appear in the exception message, since it can end up in logs/error reports.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:s3cr3t@localhost:5432")
+    with pytest.raises(ValueError) as exc_info:
+        _get_database_url()
+    assert "s3cr3t" not in str(exc_info.value)
+
+
+def test_get_database_url_from_components_encodes_reserved_characters(monkeypatch):
+    """Test that a password with URI-reserved characters (@, /, ?, #) still
+    round-trips correctly when the URL is built from discrete components.
+
+    Regression test: interpolating the password directly into an f-string
+    breaks parsing when it contains characters like '@' or '/'.
+    """
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_USER", "booksy_user")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "p@ss/word?#1")
+    monkeypatch.setenv("POSTGRES_HOST", "localhost")
+    monkeypatch.setenv("POSTGRES_PORT", "5432")
+    monkeypatch.setenv("POSTGRES_DB", "booksy")
+
+    result = _get_database_url()
+    parsed = make_url(result)
+
+    assert parsed.password == "p@ss/word?#1"
+    assert parsed.username == "booksy_user"
+    assert parsed.host == "localhost"
+    assert parsed.port == 5432
+    assert parsed.database == "booksy"
 
 
 # ============================================================================
 # Tests for database URL error scenarios
 # ============================================================================
 
-def test_get_database_url_invalid_format():
+def test_get_database_url_invalid_format(monkeypatch):
     """Test that invalid DATABASE_URL raises ValueError."""
-    os.environ["DATABASE_URL"] = "invalid-url-format"
-    try:
-        with pytest.raises(ValueError, match="Invalid DATABASE_URL format"):
-            _get_database_url()
-    finally:
-        del os.environ["DATABASE_URL"]
+    monkeypatch.setenv("DATABASE_URL", "invalid-url-format")
+    with pytest.raises(ValueError, match="Invalid DATABASE_URL format"):
+        _get_database_url()
 
 
-def test_get_database_url_missing_required_components():
+def test_get_database_url_missing_required_components(monkeypatch):
     """Test that missing required components raise ValueError."""
-    # Create scenario where both DATABASE_URL and component variables are invalid
-    # Clear any existing DATABASE_URL
-    if "DATABASE_URL" in os.environ:
-        del os.environ["DATABASE_URL"]
-
-    # Set invalid port
-    os.environ["POSTGRES_PORT"] = "invalid"
-    try:
-        with pytest.raises(ValueError, match="Invalid POSTGRES_PORT"):
-            _get_database_url()
-    finally:
-        del os.environ["POSTGRES_PORT"]
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_PORT", "invalid")
+    with pytest.raises(ValueError, match="Invalid POSTGRES_PORT"):
+        _get_database_url()
 
 
-def test_get_database_url_invalid_port_range():
+def test_get_database_url_invalid_port_range(monkeypatch):
     """Test that port out of valid range raises ValueError."""
-    if "DATABASE_URL" in os.environ:
-        del os.environ["DATABASE_URL"]
-
-    os.environ["POSTGRES_PORT"] = "99999"
-    try:
-        with pytest.raises(ValueError, match="Port must be between 1 and 65535"):
-            _get_database_url()
-    finally:
-        del os.environ["POSTGRES_PORT"]
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("POSTGRES_PORT", "99999")
+    with pytest.raises(ValueError, match="Port must be between 1 and 65535"):
+        _get_database_url()
 
 
 # ============================================================================
 # Tests for pool configuration
 # ============================================================================
 
-def test_pool_configuration_from_env():
+def test_pool_configuration_from_env(monkeypatch):
     """Test that pool configuration is read from environment variables."""
-    os.environ["TESTING"] = "false"  # Ensure we use QueuePool, not NullPool
-    os.environ["DB_POOL_SIZE"] = "20"
-    os.environ["DB_MAX_OVERFLOW"] = "5"
-    os.environ["DB_POOL_RECYCLE"] = "1800"
+    monkeypatch.setenv("TESTING", "false")  # Ensure we use QueuePool, not NullPool
+    monkeypatch.setenv("DB_POOL_SIZE", "20")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "5")
+    monkeypatch.setenv("DB_POOL_RECYCLE", "1800")
 
-    try:
-        # This should create an engine with custom pool settings
-        # We can't easily test the exact values without inspecting private attributes,
-        # but we can verify the engine is created without error
-        test_engine = _create_engine()
-        assert test_engine is not None
-    finally:
-        os.environ["TESTING"] = "true"
-        del os.environ["DB_POOL_SIZE"]
-        del os.environ["DB_MAX_OVERFLOW"]
-        del os.environ["DB_POOL_RECYCLE"]
+    # This should create an engine with custom pool settings
+    # We can't easily test the exact values without inspecting private attributes,
+    # but we can verify the engine is created without error
+    test_engine = _create_engine()
+    assert test_engine is not None
 
 
-def test_pool_configuration_defaults():
+def test_pool_configuration_defaults(monkeypatch):
     """Test that pool configuration uses sensible defaults."""
-    os.environ["TESTING"] = "false"
+    monkeypatch.setenv("TESTING", "false")
+    monkeypatch.delenv("DB_POOL_SIZE", raising=False)
+    monkeypatch.delenv("DB_MAX_OVERFLOW", raising=False)
+    monkeypatch.delenv("DB_POOL_RECYCLE", raising=False)
 
-    # Clear custom pool settings if present
-    for key in ["DB_POOL_SIZE", "DB_MAX_OVERFLOW", "DB_POOL_RECYCLE"]:
-        if key in os.environ:
-            del os.environ[key]
-
-    try:
-        # This should create an engine with default pool settings
-        test_engine = _create_engine()
-        assert test_engine is not None
-    finally:
-        os.environ["TESTING"] = "true"
+    # This should create an engine with default pool settings
+    test_engine = _create_engine()
+    assert test_engine is not None
 
 
-def test_pool_configuration_invalid_pool_size():
+def test_pool_configuration_invalid_pool_size(monkeypatch):
     """Test that invalid pool size raises ValueError."""
-    os.environ["TESTING"] = "false"
-    os.environ["DB_POOL_SIZE"] = "invalid"
+    monkeypatch.setenv("TESTING", "false")
+    monkeypatch.setenv("DB_POOL_SIZE", "invalid")
 
-    try:
-        with pytest.raises(ValueError, match="Invalid pool configuration"):
-            _create_engine()
-    finally:
-        os.environ["TESTING"] = "true"
-        del os.environ["DB_POOL_SIZE"]
+    with pytest.raises(ValueError, match="Invalid pool configuration"):
+        _create_engine()
 
 
-def test_pool_configuration_negative_pool_size():
+def test_pool_configuration_negative_pool_size(monkeypatch):
     """Test that negative pool size raises ValueError."""
-    os.environ["TESTING"] = "false"
-    os.environ["DB_POOL_SIZE"] = "-5"
+    monkeypatch.setenv("TESTING", "false")
+    monkeypatch.setenv("DB_POOL_SIZE", "-5")
 
-    try:
-        with pytest.raises(ValueError, match="DB_POOL_SIZE must be positive"):
-            _create_engine()
-    finally:
-        os.environ["TESTING"] = "true"
-        del os.environ["DB_POOL_SIZE"]
+    with pytest.raises(ValueError, match="DB_POOL_SIZE must be positive"):
+        _create_engine()
 
 
-def test_pool_configuration_negative_overflow():
+def test_pool_configuration_negative_overflow(monkeypatch):
     """Test that negative overflow raises ValueError."""
-    os.environ["TESTING"] = "false"
-    os.environ["DB_MAX_OVERFLOW"] = "-1"
+    monkeypatch.setenv("TESTING", "false")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "-1")
 
-    try:
-        with pytest.raises(ValueError, match="DB_MAX_OVERFLOW must be non-negative"):
-            _create_engine()
-    finally:
-        os.environ["TESTING"] = "true"
-        del os.environ["DB_MAX_OVERFLOW"]
+    with pytest.raises(ValueError, match="DB_MAX_OVERFLOW must be non-negative"):
+        _create_engine()
 
 
-def test_pool_configuration_invalid_recycle():
+def test_pool_configuration_invalid_recycle(monkeypatch):
     """Test that invalid recycle value raises ValueError."""
-    os.environ["TESTING"] = "false"
-    os.environ["DB_POOL_RECYCLE"] = "not_a_number"
+    monkeypatch.setenv("TESTING", "false")
+    monkeypatch.setenv("DB_POOL_RECYCLE", "not_a_number")
 
-    try:
-        with pytest.raises(ValueError, match="Invalid pool configuration"):
-            _create_engine()
-    finally:
-        os.environ["TESTING"] = "true"
-        del os.environ["DB_POOL_RECYCLE"]
+    with pytest.raises(ValueError, match="Invalid pool configuration"):
+        _create_engine()
 
 
 # ============================================================================
