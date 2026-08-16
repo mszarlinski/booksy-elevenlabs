@@ -1,7 +1,12 @@
+import logging
+
 from fastapi import FastAPI
 
-from app.routers import bookings, businesses
+from app.routers import bookings, businesses, services
+
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
 app.include_router(businesses.router)
 app.include_router(bookings.router)
+app.include_router(services.router)
