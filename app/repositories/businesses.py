@@ -49,3 +49,25 @@ class BusinessRepository(BaseRepository[Business]):
         )
         result = await self.session.execute(stmt)
         return result.scalars().all()
+
+
+# In-memory repository used by the existing (non-DB-backed) routers.
+class InMemoryBusinessRepository:
+    def __init__(self) -> None:
+        self._businesses: list[dict[str, str]] = [
+            {"id": "biz-glow-salon", "name": "Glow Hair & Beauty Salon"},
+            {"id": "biz-downtown-barber", "name": "Downtown Barbershop"},
+        ]
+
+    def list(self) -> list[dict[str, str]]:
+        return self._businesses
+
+    def add(self, business: dict[str, str]) -> None:
+        self._businesses.append(business)
+
+
+_repository = InMemoryBusinessRepository()
+
+
+def get_business_repository() -> InMemoryBusinessRepository:
+    return _repository

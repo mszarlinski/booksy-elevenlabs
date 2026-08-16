@@ -94,11 +94,13 @@ async def test_get_bookings_by_service_id_empty(async_session: AsyncSession):
 async def test_get_by_business_id(async_session: AsyncSession):
     """Test retrieving services by business ID."""
     business = Business(id="biz-1", name="Test Business")
+    other_business = Business(id="biz-2", name="Other Business")
     svc1 = Service(id="svc-1", business_id="biz-1", name="Haircut", duration_minutes=30)
     svc2 = Service(id="svc-2", business_id="biz-1", name="Shave", duration_minutes=20)
     svc3 = Service(id="svc-3", business_id="biz-2", name="Manicure", duration_minutes=45)
 
     async_session.add(business)
+    async_session.add(other_business)
     async_session.add(svc1)
     async_session.add(svc2)
     async_session.add(svc3)
