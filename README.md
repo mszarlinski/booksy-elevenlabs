@@ -54,6 +54,7 @@ app/
   idempotency.py          — idempotency-key handling shared by booking mutations
 scripts/
   create_elevenlabs_agent.py — registers the FastAPI endpoints as ElevenLabs webhook tools
+  seed_database.py            — populates the database with sample businesses, employees, services, and bookings
 tests/                    — pytest suite (run with `uv run pytest`)
 docs/
   BACKLOG.md              — the story-by-story roadmap
@@ -76,6 +77,18 @@ uv run uvicorn app.main:app --reload
 docker compose up --build -d
 docker logs -f booksy-elevenlabs-api-1   # tail the running container's logs
 ```
+
+### Seed the database with sample data
+
+After starting the database (either locally or via Docker), populate it with sample
+businesses, employees, services, and bookings:
+
+```bash
+uv run python scripts/seed_database.py
+```
+
+This script is idempotent—it's safe to run multiple times. It checks for existing data
+and skips seeding if the database already has records.
 
 ### Run the tests
 
