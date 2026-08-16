@@ -69,14 +69,24 @@ explicit instead of implicit duck-typing.
 
 ## Docker Compose & environment
 
-**`docker-compose.yml`** (new, repo root): one `db` service, `postgres:16`, with:
+**`docker-compose.yml`** (existing — has one `api` service today; gains a `db`
+service): `postgres:16`, with:
 - `POSTGRES_USER=booksy`, `POSTGRES_PASSWORD=booksy`, `POSTGRES_DB=booksy`
-- port `5432:5432`
+- port `5432:5432` (published to the host, not just the compose network)
 - a named volume for data persistence across container restarts
 - `./docker/init-test-db.sql` mounted into `/docker-entrypoint-initdb.d/`, containing
   `CREATE DATABASE booksy_test;` — Postgres only runs `initdb.d` scripts on first
   container creation (empty data dir), so this runs once and both databases persist
   in the same volume thereafter.
+
+The existing `api` service gains `depends_on: [db]` and an `environment:
+DATABASE_URL=postgresql+asyncpg://booksy:booksy@db:5432/booksy` override — inside the
+compose network, the database's hostname is the service name `db`, not `localhost`.
+
+**`Dockerfile`** (existing, unchanged): it only `COPY`s `app/` into the image (not
+`scripts/`, `alembic/`, or `tests/`), so migrations and seeding are host-side operator
+steps run via `uv run ...` against the published `5432` port — never something the `api`
+container does on startup or otherwise.
 
 **Environment variables** (`.env.example` gains, alongside the existing ElevenLabs
 vars):
@@ -84,9 +94,11 @@ vars):
 DATABASE_URL=postgresql+asyncpg://booksy:booksy@localhost:5432/booksy
 TEST_DATABASE_URL=postgresql+asyncpg://booksy:booksy@localhost:5432/booksy_test
 ```
-`app/adapters/db/session.py` reads `DATABASE_URL` from the environment with the above as
-its default (so `uv run uvicorn app.main:app` works out of the box against the compose
-setup with zero configuration). Tests read `TEST_DATABASE_URL` the same way.
+`app/adapters/db/session.py` reads `DATABASE_URL` from the environment with the above
+`localhost` default — correct for `uv run uvicorn app.main:app` (host process) and for
+Alembic/seeding (also host-side), and overridden to the `db` hostname only inside the
+`api` container via the compose `environment:` block above. Tests read
+`TEST_DATABASE_URL` the same way, always from the host.
 
 ## Engine, session, and the FastAPI dependency
 
