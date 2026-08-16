@@ -194,38 +194,6 @@ class InMemoryBookingRepository:
                 return booking
         raise KeyError(booking_id)
 
-    def add(
-        self,
-        customer_name: str,
-        service: str,
-        slot: str,
-        employee_id: str | None = None,
-    ) -> dict[str, str | None]:
-        """Create and add a booking (backward compatibility method)."""
-        from uuid import uuid4
-        booking = {
-            "id": str(uuid4()),
-            "customer_name": customer_name,
-            "service": service,
-            "slot": slot,
-            "employee_id": employee_id,
-            "status": "confirmed",
-        }
-        self.bookings[booking["id"]] = booking
-        return booking
-
-    def cancel(self, booking_id: str) -> dict[str, str | None]:
-        """Cancel a booking (backward compatibility method)."""
-        booking = self.get(booking_id)
-        booking["status"] = "cancelled"
-        return booking
-
-    def reschedule(self, booking_id: str, slot: str) -> dict[str, str | None]:
-        """Reschedule a booking (backward compatibility method)."""
-        booking = self.get(booking_id)
-        booking["slot"] = slot
-        return booking
-
 
 _repository = InMemoryBookingRepository()
 
