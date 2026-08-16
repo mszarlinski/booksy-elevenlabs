@@ -18,10 +18,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# ============================================================================
-# Old models and endpoints for backward compatibility with existing tests
-# ============================================================================
-
 class CreateBookingRequest(BaseModel):
     customer_name: str
     service: str
@@ -117,10 +113,6 @@ def reschedule_booking(
     )
 
 
-# ============================================================================
-# New models and endpoint for database-backed booking creation with validation
-# ============================================================================
-
 class CreateBookingWithValidationRequest(BaseModel):
     """Request model for creating a booking with full validation."""
     customer_name: str = Field(..., min_length=1, description="Customer name")
@@ -175,7 +167,6 @@ async def create_booking_with_validation(
         body.start_time,
     )
 
-    # Validate customer_name and customer_email are provided
     if not body.customer_name or not body.customer_name.strip():
         logger.warning("Booking creation failed: customer_name is empty")
         raise HTTPException(
@@ -190,7 +181,6 @@ async def create_booking_with_validation(
             detail="customer_email is required and cannot be empty",
         )
 
-    # Validate start_time format and check if it's in the future
     try:
         start_time_dt = datetime.fromisoformat(body.start_time.replace("Z", "+00:00"))
     except (ValueError, AttributeError):
@@ -200,7 +190,6 @@ async def create_booking_with_validation(
             detail=f"start_time must be in ISO 8601 format, got: {body.start_time}",
         )
 
-    # Check if start_time is in the future
     if start_time_dt <= datetime.now(start_time_dt.tzinfo):
         logger.warning("Booking creation failed: start_time is in the past")
         raise HTTPException(
@@ -208,7 +197,6 @@ async def create_booking_with_validation(
             detail="start_time must be in the future",
         )
 
-    # Validate service_id exists
     try:
         service_repo = ServiceRepository(session)
         service = await service_repo.get_by_id(body.service_id)
@@ -220,7 +208,6 @@ async def create_booking_with_validation(
             detail=f"Service with id {body.service_id} not found",
         ) from e
 
-    # Validate employee_id exists
     try:
         employee_repo = EmployeeRepository(session)
         employee = await employee_repo.get_by_id(body.employee_id)
@@ -232,7 +219,6 @@ async def create_booking_with_validation(
             detail=f"Employee with id {body.employee_id} not found",
         ) from e
 
-    # Create the booking with conflict detection and pessimistic locking
     try:
         async with session.begin():
             booking_repo = BookingRepository(session)
@@ -246,7 +232,6 @@ async def create_booking_with_validation(
                 "status": "pending",
             }
 
-            # This method will check for conflicts and create atomically
             booking = await booking_repo.check_and_create_booking(
                 service_id=body.service_id,
                 employee_id=body.employee_id,
@@ -266,7 +251,6 @@ async def create_booking_with_validation(
                 status=booking.status,
             )
     except HTTPException as e:
-        # Re-raise HTTPException (includes 409 Conflict from check_and_create_booking)
         logger.warning("Booking creation failed: %s", e.detail)
         raise
     except Exception as e:
