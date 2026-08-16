@@ -130,6 +130,24 @@ def test_create_booking_without_employee_id_defaults_to_none():
     assert response.json()["employee_id"] is None
 
 
+def test_get_booking_returns_the_booking():
+    created = client.post(
+        "/bookings",
+        json={"customer_name": "Ivan", "service": "Haircut", "slot": "2026-08-22T09:00"},
+    ).json()
+
+    response = client.get(f"/bookings/{created['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == created
+
+
+def test_get_booking_returns_404_for_unknown_id():
+    response = client.get("/bookings/does-not-exist")
+
+    assert response.status_code == 404
+
+
 def test_reschedule_booking_does_not_repeat_mutation_on_retry():
     counting_repo = CountingBookingRepository()
     app.dependency_overrides[get_booking_repository] = lambda: counting_repo
