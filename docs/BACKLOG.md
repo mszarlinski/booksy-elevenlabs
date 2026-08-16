@@ -12,7 +12,7 @@ Each story lives in its own file under [`docs/backlog/`](backlog/).
 | [VBOOK-06](backlog/VBOOK-06-implement-transactional-booking.md) | P0 | Implement transactional booking |
 | [VBOOK-07](backlog/VBOOK-07-add-idempotency-and-safe-mutations.md) | P0 | Add idempotency and safe mutations |
 | [VBOOK-08](backlog/VBOOK-08-build-the-first-elevenlabs-conversational-agent.md) | P0 | Build the first ElevenLabs conversational agent |
-| [VBOOK-09](backlog/VBOOK-09-connect-elevenlabs-tools-to-fastapi.md) | P0 | Connect ElevenLabs tools to FastAPI |
+| [VBOOK-09](done/VBOOK-09-connect-elevenlabs-tools-to-fastapi.md) | P0 | Connect ElevenLabs tools to FastAPI |
 | [VBOOK-10](backlog/VBOOK-10-implement-voice-booking-with-explicit-confirmation.md) | P0 | Implement voice booking with explicit confirmation |
 | [VBOOK-11](backlog/VBOOK-11-support-conversational-rescheduling-and-cancellation.md) | P1 | Support conversational rescheduling and cancellation |
 | [VBOOK-12](backlog/VBOOK-12-learn-asyncio-through-parallel-availability-search.md) | P1 | Learn asyncio through parallel availability search |
