@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -190,37 +190,44 @@ async def create_booking_with_validation(
             detail=f"start_time must be in ISO 8601 format, got: {body.start_time}",
         )
 
-    if start_time_dt <= datetime.now(start_time_dt.tzinfo):
+    # Normalize to naive UTC: bookings.start_time is TIMESTAMP WITHOUT TIME
+    # ZONE, and comparing it against an aware datetime (in the overlap check
+    # below) raises TypeError.
+    if start_time_dt.tzinfo is not None:
+        start_time_dt = start_time_dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+    if start_time_dt <= datetime.now(timezone.utc).replace(tzinfo=None):
         logger.warning("Booking creation failed: start_time is in the past")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="start_time must be in the future",
         )
 
-    try:
-        service_repo = ServiceRepository(session)
-        service = await service_repo.get_by_id(body.service_id)
-        logger.info("Service found: id=%s, name=%s", service.id, service.name)
-    except ValueError as e:
-        logger.warning("Booking creation failed: service not found=%s", body.service_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Service with id {body.service_id} not found",
-        ) from e
-
-    try:
-        employee_repo = EmployeeRepository(session)
-        employee = await employee_repo.get_by_id(body.employee_id)
-        logger.info("Employee found: id=%s, name=%s", employee.id, employee.name)
-    except ValueError as e:
-        logger.warning("Booking creation failed: employee not found=%s", body.employee_id)
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Employee with id {body.employee_id} not found",
-        ) from e
-
+    # All reads and writes share one transaction: AsyncSession autobegins on
+    # the first execute(), so starting session.begin() only after the service
+    # and employee lookups would raise "a transaction is already begun".
     try:
         async with session.begin():
+            service_repo = ServiceRepository(session)
+            try:
+                service = await service_repo.get_by_id(body.service_id)
+                logger.info("Service found: id=%s, name=%s", service.id, service.name)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Service with id {body.service_id} not found",
+                ) from e
+
+            employee_repo = EmployeeRepository(session)
+            try:
+                employee = await employee_repo.get_by_id(body.employee_id)
+                logger.info("Employee found: id=%s, name=%s", employee.id, employee.name)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Employee with id {body.employee_id} not found",
+                ) from e
+
             booking_repo = BookingRepository(session)
             booking_data = {
                 "id": str(uuid4()),
@@ -229,11 +236,10 @@ async def create_booking_with_validation(
                 "service_id": body.service_id,
                 "employee_id": body.employee_id,
                 "start_time": start_time_dt,
-                "status": "pending",
+                "status": "confirmed",
             }
 
             booking = await booking_repo.check_and_create_booking(
-                service_id=body.service_id,
                 employee_id=body.employee_id,
                 start_time=start_time_dt,
                 duration_minutes=service.duration_minutes,

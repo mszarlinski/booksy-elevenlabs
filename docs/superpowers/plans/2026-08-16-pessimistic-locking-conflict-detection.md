@@ -4,7 +4,7 @@
 
 **Goal:** Implement pessimistic locking using SELECT ... FOR UPDATE to prevent double-booking by detecting overlapping bookings and ensuring exactly one booking succeeds in concurrent scenarios.
 
-**Architecture:** Use SQLAlchemy's `for_update()` to lock Booking records with overlapping time windows within a transaction. When a POST /bookings/validated request arrives, query all bookings for the same service that overlap with the requested time slot (start_time to start_time + service.duration_minutes). If any overlapping booking is found during the locked query, raise HTTPException(409). If clear, create the booking atomically within the same transaction.
+**Architecture:** Use SQLAlchemy's `for_update()` to lock the requested Employee row within a transaction - locking Booking rows alone doesn't help when the employee has no bookings yet, since `FOR UPDATE` only locks rows it actually finds, so concurrent first-time bookings for the same slot could otherwise both pass. With the employee row locked, query all of that employee's bookings (across services) and check each one's own service duration for a time-window overlap with the requested slot (start_time to start_time + service.duration_minutes). If any overlapping booking is found, raise HTTPException(409). If clear, create the booking atomically within the same transaction.
 
 **Tech Stack:** 
 - SQLAlchemy ORM with async support

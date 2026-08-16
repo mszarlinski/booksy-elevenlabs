@@ -7,7 +7,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException
-from app.models import Booking
+from app.models import Booking, Employee, Service
 from app.repositories.base import BaseRepository
 
 
@@ -87,8 +87,7 @@ class BookingRepository(BaseRepository[Booking]):
 
     async def check_and_create_booking(
         self,
-        service_id: str,
-        employee_id: str | None,
+        employee_id: str,
         start_time: datetime,
         duration_minutes: int,
         booking_data: dict,
@@ -97,15 +96,19 @@ class BookingRepository(BaseRepository[Booking]):
         Check for overlapping bookings and create a new booking atomically.
 
         Uses pessimistic locking (SELECT ... FOR UPDATE) to prevent double-booking:
-        1. Locks all bookings for the same service within the time window
-        2. If any overlapping booking found, raises conflict
-        3. If clear, creates the booking atomically
+        1. Locks the Employee row, serializing concurrent attempts for that
+           employee - locking Booking rows alone doesn't help when the
+           employee has no bookings yet, since FOR UPDATE only locks rows
+           it actually finds.
+        2. Checks all of the employee's bookings (across services) for a
+           time-window overlap, using each existing booking's own service
+           duration.
+        3. If clear, creates the booking within the same transaction.
 
         Args:
-            service_id: ID of the service being booked
-            employee_id: ID of the employee (may be None)
+            employee_id: ID of the employee being booked
             start_time: Start time of the booking
-            duration_minutes: Duration of the service in minutes
+            duration_minutes: Duration of the service being booked
             booking_data: Dictionary with booking details (id, customer_name, etc.)
 
         Returns:
@@ -114,18 +117,23 @@ class BookingRepository(BaseRepository[Booking]):
         Raises:
             HTTPException(409): If overlapping booking found
         """
+        await self.session.execute(
+            select(Employee.id).where(Employee.id == employee_id).with_for_update()
+        )
+
         end_time = self._calculate_booking_end_time(start_time, duration_minutes)
 
         stmt = (
-            select(Booking)
-            .where(Booking.service_id == service_id)
-            .with_for_update()
+            select(Booking, Service.duration_minutes)
+            .join(Service, Booking.service_id == Service.id)
+            .where(Booking.employee_id == employee_id)
         )
         result = await self.session.execute(stmt)
-        existing_bookings = result.scalars().all()
 
-        for booking in existing_bookings:
-            booking_end_time = self._calculate_booking_end_time(booking.start_time, duration_minutes)
+        for booking, existing_duration_minutes in result.all():
+            booking_end_time = self._calculate_booking_end_time(
+                booking.start_time, existing_duration_minutes
+            )
             if booking.start_time < end_time and start_time < booking_end_time:
                 raise HTTPException(status_code=409, detail="Slot already booked")
 
