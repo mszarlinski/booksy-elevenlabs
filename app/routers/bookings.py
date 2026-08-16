@@ -232,7 +232,7 @@ async def create_booking_with_validation(
             detail=f"Employee with id {body.employee_id} not found",
         ) from e
 
-    # Create the booking
+    # Create the booking with conflict detection and pessimistic locking
     try:
         async with session.begin():
             booking_repo = BookingRepository(session)
@@ -245,7 +245,15 @@ async def create_booking_with_validation(
                 "start_time": start_time_dt,
                 "status": "pending",
             }
-            booking = await booking_repo.create(booking_data)
+
+            # This method will check for conflicts and create atomically
+            booking = await booking_repo.check_and_create_booking(
+                service_id=body.service_id,
+                employee_id=body.employee_id,
+                start_time=start_time_dt,
+                duration_minutes=service.duration_minutes,
+                booking_data=booking_data,
+            )
             logger.info("Booking created: id=%s, status=%s", booking.id, booking.status)
 
             return BookingResponse(
@@ -257,6 +265,10 @@ async def create_booking_with_validation(
                 start_time=booking.start_time.isoformat(),
                 status=booking.status,
             )
+    except HTTPException as e:
+        # Re-raise HTTPException (includes 409 Conflict from check_and_create_booking)
+        logger.warning("Booking creation failed: %s", e.detail)
+        raise
     except Exception as e:
         logger.error("Error creating booking: %s", str(e))
         raise HTTPException(
