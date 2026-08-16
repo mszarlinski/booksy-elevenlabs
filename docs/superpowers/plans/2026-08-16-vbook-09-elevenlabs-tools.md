@@ -935,6 +935,41 @@ def test_search_available_slots_returns_400_for_malformed_date():
 Run: `uv run pytest tests/test_availability.py -v`
 Expected: FAIL — no `/availability` route exists yet (404 for all, including the ones expecting 200/400).
 
+**Deviation (found and fixed during Task 7's own implementation/review, before Task 7 was ever marked complete):** `test_search_available_slots_excludes_an_existing_booking` as written above posts a real booking through the shared module-level `InMemoryBookingRepository` singleton with no cleanup. Because pytest collects test files alphabetically (`test_availability.py` before `test_bookings.py`), this leaked a booking into shared state and broke `tests/test_bookings.py::test_bookings_returns_200_and_empty_list`. The committed version of this test instead uses an isolated repository via `app.dependency_overrides[get_booking_repository]`, restored in a `finally` block — mirroring the `CountingBookingRepository` override pattern already used in `tests/test_bookings.py`:
+
+```python
+def test_search_available_slots_excludes_an_existing_booking():
+    isolated_repo = InMemoryBookingRepository()
+    app.dependency_overrides[get_booking_repository] = lambda: isolated_repo
+    try:
+        created = client.post(
+            "/bookings",
+            json={
+                "customer_name": "Trent",
+                "service": "Men's Haircut",
+                "slot": "2026-08-24T10:00",
+                "employee_id": "emp-alice",
+            },
+        ).json()
+        assert created["status"] == "confirmed"
+
+        response = client.get(
+            "/availability",
+            params={
+                "service_id": "svc-haircut",
+                "date": "2026-08-24",
+                "employee_id": "emp-alice",
+            },
+        )
+
+        starts = {slot["start"] for slot in response.json()["slots"]}
+        assert "2026-08-24T10:00" not in starts
+    finally:
+        app.dependency_overrides.pop(get_booking_repository, None)
+```
+
+This required adding `from app.repositories.bookings import InMemoryBookingRepository, get_booking_repository` and `from app.main import app` to `tests/test_availability.py`'s imports. Verified necessary by reverting to the unisolated version and reproducing the `test_bookings.py` failure, then restoring the fix. This was independently confirmed necessary and correctly scoped during Task 7's spec-compliance and code-quality review.
+
 - [x] **Step 3: Create the availability router**
 
 ```python
@@ -1359,7 +1394,14 @@ git add scripts/__init__.py scripts/create_elevenlabs_agent.py tests/test_create
 git commit -m "Add ElevenLabs agent-creation script with webhook tool configs"
 ```
 
-**Deviation (post-hoc, by user request):** after this task was implemented and committed exactly as planned above (verified 4/4 new tests passing, 43/43 full suite), the user asked to drop the test file from the repo — `scripts/create_elevenlabs_agent.py` is a one-off setup script, not maintained long-term code, so it doesn't warrant committed regression tests. `tests/test_create_elevenlabs_agent.py` was removed in a follow-up commit after being used to verify `build_tool_configs` manually. The script itself (`scripts/create_elevenlabs_agent.py`, `scripts/__init__.py`) remains unchanged. Full suite after removal: 39 passed.
+**Deviation 1 (post-hoc, by user request):** after this task was implemented and committed exactly as planned above (verified 4/4 new tests passing, 43/43 full suite), the user asked to drop the test file from the repo — `scripts/create_elevenlabs_agent.py` is a one-off setup script, not maintained long-term code, so it doesn't warrant committed regression tests. `tests/test_create_elevenlabs_agent.py` was removed in a follow-up commit after being used to verify `build_tool_configs` manually. The script itself (`scripts/create_elevenlabs_agent.py`, `scripts/__init__.py`) remains unchanged at this point. Full suite after removal: 39 passed.
+
+**Deviation 2 (bugs found in code-quality review, fixed post-commit):** with the test file gone, a code-quality reviewer gave the script extra scrutiny by validating its ElevenLabs SDK call shapes against the actually-installed `elevenlabs==2.64.0` package's pydantic models (no API key or network access needed for this — just local model validation). Two bugs were found and are NOT reflected in the `main()`/`build_tool_configs()` code shown in Step 4 above:
+
+1. `client.conversational_ai.tools.create(tool_config=config)` used a keyword argument that doesn't exist on the installed SDK — `ToolsClient.create` requires `request: ToolRequestModel`. Fixed to `client.conversational_ai.tools.create(request={"tool_config": config})`.
+2. `query_params_schema` was built as a flat `{param: {type, description}}` dict, but the SDK's `QueryParamsJsonSchema` model requires `{"properties": {...}, "required": [...]}`. Fixed by wrapping the params dict accordingly in `build_tool_configs()`, and adding a `required_query_params` list per tool in `TOOL_DEFINITIONS` (derived from which FastAPI query params have no default: `["service_id", "date"]` for `search_available_slots`, `[]` for the other three query-param tools). `path_params_schema` for `get_booking` was already correct as a flat dict and was left unchanged.
+
+Both fixes were verified by constructing `ToolRequestModel(tool_config=config)` for all 5 `build_tool_configs()` outputs against the installed SDK and confirming they validate without error — still without any real API key or network call. `uv run pytest -q` continued to pass at 39 (unchanged, since this script has no committed tests).
 
 ---
 
