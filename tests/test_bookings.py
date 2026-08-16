@@ -31,14 +31,14 @@ def test_bookings_returns_200_and_empty_list():
 def test_create_booking_returns_confirmed_booking():
     response = client.post(
         "/bookings",
-        json={"customer_name": "Alice", "service": "Haircut", "slot": "2026-08-15T18:00"},
+        json={"customer_name": "Alice", "service": "Haircut", "slot": "2026-09-15T18:00"},
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["customer_name"] == "Alice"
     assert body["service"] == "Haircut"
-    assert body["slot"] == "2026-08-15T18:00"
+    assert body["slot"] == "2026-09-15T18:00"
     assert body["status"] == "confirmed"
     assert "id" in body
 
@@ -46,7 +46,7 @@ def test_create_booking_returns_confirmed_booking():
 def test_cancel_booking_sets_status_to_cancelled():
     created = client.post(
         "/bookings",
-        json={"customer_name": "Bob", "service": "Shave", "slot": "2026-08-15T19:00"},
+        json={"customer_name": "Bob", "service": "Shave", "slot": "2026-09-15T19:00"},
     ).json()
 
     response = client.post(f"/bookings/{created['id']}/cancel")
@@ -58,22 +58,22 @@ def test_cancel_booking_sets_status_to_cancelled():
 def test_reschedule_booking_updates_slot():
     created = client.post(
         "/bookings",
-        json={"customer_name": "Carol", "service": "Haircut", "slot": "2026-08-15T10:00"},
+        json={"customer_name": "Carol", "service": "Haircut", "slot": "2026-09-15T10:00"},
     ).json()
 
     response = client.post(
-        f"/bookings/{created['id']}/reschedule", json={"slot": "2026-08-16T10:00"}
+        f"/bookings/{created['id']}/reschedule", json={"slot": "2026-09-16T10:00"}
     )
 
     assert response.status_code == 200
-    assert response.json()["slot"] == "2026-08-16T10:00"
+    assert response.json()["slot"] == "2026-09-16T10:00"
 
 
 def test_create_booking_is_idempotent_on_retry():
     request = {
         "customer_name": "Dana",
         "service": "Haircut",
-        "slot": "2026-08-17T10:00",
+        "slot": "2026-09-17T10:00",
     }
     headers = {"Idempotency-Key": "retry-key-1"}
 
@@ -93,7 +93,7 @@ def test_cancel_booking_does_not_repeat_mutation_on_retry():
     try:
         created = client.post(
             "/bookings",
-            json={"customer_name": "Eve", "service": "Haircut", "slot": "2026-08-18T10:00"},
+            json={"customer_name": "Eve", "service": "Haircut", "slot": "2026-09-18T10:00"},
         ).json()
         headers = {"Idempotency-Key": "cancel-retry-key-1"}
 
@@ -111,7 +111,7 @@ def test_create_booking_accepts_optional_employee_id():
         json={
             "customer_name": "Grace",
             "service": "Haircut",
-            "slot": "2026-08-21T10:00",
+            "slot": "2026-09-21T10:00",
             "employee_id": "emp-alice",
         },
     )
@@ -123,7 +123,7 @@ def test_create_booking_accepts_optional_employee_id():
 def test_create_booking_without_employee_id_defaults_to_none():
     response = client.post(
         "/bookings",
-        json={"customer_name": "Heidi", "service": "Haircut", "slot": "2026-08-21T11:00"},
+        json={"customer_name": "Heidi", "service": "Haircut", "slot": "2026-09-21T11:00"},
     )
 
     assert response.status_code == 200
@@ -133,7 +133,7 @@ def test_create_booking_without_employee_id_defaults_to_none():
 def test_get_booking_returns_the_booking():
     created = client.post(
         "/bookings",
-        json={"customer_name": "Ivan", "service": "Haircut", "slot": "2026-08-22T09:00"},
+        json={"customer_name": "Ivan", "service": "Haircut", "slot": "2026-09-22T09:00"},
     ).json()
 
     response = client.get(f"/bookings/{created['id']}")
@@ -154,10 +154,10 @@ def test_reschedule_booking_does_not_repeat_mutation_on_retry():
     try:
         created = client.post(
             "/bookings",
-            json={"customer_name": "Frank", "service": "Haircut", "slot": "2026-08-19T10:00"},
+            json={"customer_name": "Frank", "service": "Haircut", "slot": "2026-09-19T10:00"},
         ).json()
         headers = {"Idempotency-Key": "reschedule-retry-key-1"}
-        body = {"slot": "2026-08-20T10:00"}
+        body = {"slot": "2026-09-20T10:00"}
 
         client.post(f"/bookings/{created['id']}/reschedule", json=body, headers=headers)
         client.post(f"/bookings/{created['id']}/reschedule", json=body, headers=headers)
@@ -170,11 +170,11 @@ def test_reschedule_booking_does_not_repeat_mutation_on_retry():
 def test_get_customer_bookings_filters_case_insensitive_substring():
     client.post(
         "/bookings",
-        json={"customer_name": "Judy Smith", "service": "Haircut", "slot": "2026-08-23T09:00"},
+        json={"customer_name": "Judy Smith", "service": "Haircut", "slot": "2026-09-23T09:00"},
     )
     client.post(
         "/bookings",
-        json={"customer_name": "Mallory", "service": "Shave", "slot": "2026-08-23T10:00"},
+        json={"customer_name": "Mallory", "service": "Shave", "slot": "2026-09-23T10:00"},
     )
 
     response = client.get("/bookings", params={"customer_name": "judy"})
