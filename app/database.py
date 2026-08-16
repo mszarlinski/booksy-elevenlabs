@@ -16,8 +16,11 @@ from sqlalchemy.ext.asyncio import (
     AsyncSession,
     create_async_engine,
 )
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.pool import NullPool
+
+# Declarative base for ORM models
+Base = declarative_base()
 
 
 def _is_valid_database_url(url: str) -> bool:

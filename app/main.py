@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from app.database import engine, async_session_factory
+from app.database import engine, async_session_factory, Base
+from app.models import Business, Employee, Service, Booking  # Import models to register them
 from app.routers import availability, bookings, businesses, employees, services, database
 
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,12 @@ async def lifespan(app: FastAPI):
         # The engine is already created in app.database, but we can add
         # any additional initialization logic here if needed
         logger.info("Database engine initialized")
+
+        # Create all ORM model tables on startup using metadata
+        logger.info("Creating ORM model tables")
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("ORM model tables created/verified successfully")
 
         # Create test_records table on startup (one-time initialization)
         async with async_session_factory() as session:
