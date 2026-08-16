@@ -2084,6 +2084,27 @@ uv run python -m scripts.seed_db
 ```
 ```
 
+- [ ] **Step 4a: Update the "Project status" section**
+
+Change:
+
+```markdown
+This is a learning project, built incrementally per [`docs/BACKLOG.md`](docs/BACKLOG.md).
+As of now: FastAPI skeleton, in-memory booking domain, idempotent mutations, and
+read-only ElevenLabs tool integration are done. Real persistence (PostgreSQL) and
+voice-driven booking creation are upcoming stories — see the backlog for the full plan.
+```
+
+to:
+
+```markdown
+This is a learning project, built incrementally per [`docs/BACKLOG.md`](docs/BACKLOG.md).
+As of now: FastAPI skeleton, real PostgreSQL persistence, idempotent mutations, and
+ElevenLabs tool integration (including voice-driven booking creation) are done.
+Concurrency-safe booking creation (VBOOK-06) is the next story — see the backlog for the
+full plan.
+```
+
 - [ ] **Step 5: Move the backlog file to done**
 
 ```bash
