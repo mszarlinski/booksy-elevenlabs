@@ -1698,8 +1698,8 @@ async def maybe_idempotent(
 ```
 
 `tests/test_idempotency.py`'s `test_get_or_create_computes_exactly_once_under_concurrent_access`
-test (using `ThreadPoolExecutor` + a sync `compute`) needs updating for this — see
-Step 5b.
+test (using `ThreadPoolExecutor`) is dropped rather than converted — no multi-threading
+or concurrency simulation in the unit test suite; see Step 5b.
 
 - [ ] **Step 5b: Update `tests/test_idempotency.py` for the async API**
 
@@ -1707,7 +1707,6 @@ Replace the full contents of `tests/test_idempotency.py`:
 
 ```python
 # tests/test_idempotency.py
-import asyncio
 from datetime import datetime, timedelta, timezone
 
 from app.idempotency import InMemoryIdempotencyStore
@@ -1758,22 +1757,6 @@ async def test_get_or_create_recomputes_after_ttl_expires():
     result = await store.get_or_create("abc", compute_two)
 
     assert result == {"id": "2"}
-
-
-async def test_get_or_create_computes_exactly_once_under_concurrent_access():
-    store = InMemoryIdempotencyStore()
-    call_count = 0
-
-    async def compute() -> dict:
-        nonlocal call_count
-        call_count += 1
-        await asyncio.sleep(0.05)
-        return {"id": "1"}
-
-    results = await asyncio.gather(*(store.get_or_create("key", compute) for _ in range(50)))
-
-    assert call_count == 1
-    assert all(result == {"id": "1"} for result in results)
 ```
 
 This file has no HTTP/DB dependency, so it doesn't need the `client` fixture — it does,
