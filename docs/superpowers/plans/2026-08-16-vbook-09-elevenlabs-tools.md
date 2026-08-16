@@ -1342,22 +1342,24 @@ if __name__ == "__main__":
 
 Note: this script is **not executed** in this task — there is no `ELEVENLABS_API_KEY` available. `main()` is exercised manually later by the user once they have ElevenLabs credentials (VBOOK-08 prerequisite). Only `build_tool_configs`, the pure part, is unit tested here.
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
 Run: `uv run pytest tests/test_create_elevenlabs_agent.py -v`
 Expected: PASS (4 tests)
 
-- [ ] **Step 6: Run the full suite to check for regressions**
+- [x] **Step 6: Run the full suite to check for regressions**
 
 Run: `uv run pytest -q`
 Expected: all tests pass (39 existing + 4 new = 43)
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add scripts/__init__.py scripts/create_elevenlabs_agent.py tests/test_create_elevenlabs_agent.py
 git commit -m "Add ElevenLabs agent-creation script with webhook tool configs"
 ```
+
+**Deviation (post-hoc, by user request):** after this task was implemented and committed exactly as planned above (verified 4/4 new tests passing, 43/43 full suite), the user asked to drop the test file from the repo — `scripts/create_elevenlabs_agent.py` is a one-off setup script, not maintained long-term code, so it doesn't warrant committed regression tests. `tests/test_create_elevenlabs_agent.py` was removed in a follow-up commit after being used to verify `build_tool_configs` manually. The script itself (`scripts/create_elevenlabs_agent.py`, `scripts/__init__.py`) remains unchanged. Full suite after removal: 39 passed.
 
 ---
 
