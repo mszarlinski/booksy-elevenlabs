@@ -105,6 +105,49 @@ def test_cancel_booking_does_not_repeat_mutation_on_retry():
         app.dependency_overrides.pop(get_booking_repository, None)
 
 
+def test_create_booking_accepts_optional_employee_id():
+    response = client.post(
+        "/bookings",
+        json={
+            "customer_name": "Grace",
+            "service": "Haircut",
+            "slot": "2026-08-21T10:00",
+            "employee_id": "emp-alice",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["employee_id"] == "emp-alice"
+
+
+def test_create_booking_without_employee_id_defaults_to_none():
+    response = client.post(
+        "/bookings",
+        json={"customer_name": "Heidi", "service": "Haircut", "slot": "2026-08-21T11:00"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["employee_id"] is None
+
+
+def test_get_booking_returns_the_booking():
+    created = client.post(
+        "/bookings",
+        json={"customer_name": "Ivan", "service": "Haircut", "slot": "2026-08-22T09:00"},
+    ).json()
+
+    response = client.get(f"/bookings/{created['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == created
+
+
+def test_get_booking_returns_404_for_unknown_id():
+    response = client.get("/bookings/does-not-exist")
+
+    assert response.status_code == 404
+
+
 def test_reschedule_booking_does_not_repeat_mutation_on_retry():
     counting_repo = CountingBookingRepository()
     app.dependency_overrides[get_booking_repository] = lambda: counting_repo
@@ -122,3 +165,28 @@ def test_reschedule_booking_does_not_repeat_mutation_on_retry():
         assert counting_repo.reschedule_calls == 1
     finally:
         app.dependency_overrides.pop(get_booking_repository, None)
+
+
+def test_get_customer_bookings_filters_case_insensitive_substring():
+    client.post(
+        "/bookings",
+        json={"customer_name": "Judy Smith", "service": "Haircut", "slot": "2026-08-23T09:00"},
+    )
+    client.post(
+        "/bookings",
+        json={"customer_name": "Mallory", "service": "Shave", "slot": "2026-08-23T10:00"},
+    )
+
+    response = client.get("/bookings", params={"customer_name": "judy"})
+
+    assert response.status_code == 200
+    bookings = response.json()["bookings"]
+    assert len(bookings) == 1
+    assert bookings[0]["customer_name"] == "Judy Smith"
+
+
+def test_get_customer_bookings_returns_empty_list_when_no_match():
+    response = client.get("/bookings", params={"customer_name": "nobody-with-this-name"})
+
+    assert response.status_code == 200
+    assert response.json() == {"bookings": []}
