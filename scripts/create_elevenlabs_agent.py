@@ -19,6 +19,7 @@ TOOL_DEFINITIONS = [
                 "description": "Free-text search term matched against service names.",
             },
         },
+        "required_query_params": [],
     },
     {
         "name": "search_employees",
@@ -33,6 +34,7 @@ TOOL_DEFINITIONS = [
                 "description": "The id of the service the employee must be able to perform.",
             },
         },
+        "required_query_params": [],
     },
     {
         "name": "search_available_slots",
@@ -63,6 +65,7 @@ TOOL_DEFINITIONS = [
                 "description": "Optional id of a specific employee, from search_employees.",
             },
         },
+        "required_query_params": ["service_id", "date"],
     },
     {
         "name": "get_booking",
@@ -85,6 +88,7 @@ TOOL_DEFINITIONS = [
                 "description": "The customer's name to search bookings for.",
             },
         },
+        "required_query_params": [],
     },
 ]
 
@@ -108,7 +112,10 @@ def build_tool_configs(base_url: str) -> list[dict]:
         if "path_params" in tool:
             api_schema["path_params_schema"] = tool["path_params"]
         if "query_params" in tool:
-            api_schema["query_params_schema"] = tool["query_params"]
+            api_schema["query_params_schema"] = {
+                "properties": tool["query_params"],
+                "required": tool.get("required_query_params", []),
+            }
 
         configs.append(
             {
@@ -130,7 +137,7 @@ def main() -> None:
 
     tool_ids = []
     for config in build_tool_configs(base_url):
-        tool = client.conversational_ai.tools.create(tool_config=config)
+        tool = client.conversational_ai.tools.create(request={"tool_config": config})
         tool_ids.append(tool.id)
 
     agent = client.conversational_ai.agents.create(
