@@ -2,8 +2,9 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from sqlalchemy import text
 
-from app.database import engine
+from app.database import engine, async_session_factory
 from app.routers import availability, bookings, businesses, employees, services, database
 
 logging.basicConfig(level=logging.INFO)
@@ -15,15 +16,36 @@ async def lifespan(app: FastAPI):
     """
     FastAPI lifespan context manager for startup and shutdown events.
 
-    Startup: Initialize the database engine
+    Startup: Initialize the database engine and create required tables
     Shutdown: Dispose of the database engine
     """
-    # Startup: Initialize database engine
+    # Startup: Initialize database engine and create tables
     logger.info("Starting up: Initializing database engine")
     try:
         # The engine is already created in app.database, but we can add
         # any additional initialization logic here if needed
         logger.info("Database engine initialized")
+
+        # Create test_records table on startup (one-time initialization)
+        async with async_session_factory() as session:
+            try:
+                await session.execute(
+                    text(
+                        """
+                    CREATE TABLE IF NOT EXISTS test_records (
+                        id SERIAL PRIMARY KEY,
+                        message TEXT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                    )
+                )
+                await session.commit()
+                logger.info("Test records table created/verified successfully")
+            except Exception as e:
+                logger.error("Failed to create test_records table: %s", e)
+                raise
+
     except Exception as e:
         logger.error("Failed to initialize database engine: %s", e)
         raise

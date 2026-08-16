@@ -13,7 +13,7 @@ They should be removed before moving to production.
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,7 +58,7 @@ class TestDataResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health_check(session: AsyncSession = Depends(get_session)) -> HealthResponse:
+async def health_check(session: AsyncSession = Depends(get_session)) -> Response:
     """
     Simple database health check endpoint.
 
@@ -66,9 +66,10 @@ async def health_check(session: AsyncSession = Depends(get_session)) -> HealthRe
     - Using the get_session dependency in a route handler
     - Executing a simple query to verify database connection
     - Session is automatically closed after the request completes
+    - Returning appropriate HTTP status codes (200 for healthy, 503 for unhealthy)
 
     Returns:
-        HealthResponse with status and timestamp
+        Response with HealthResponse JSON and appropriate status code
     """
     try:
         # Simple query to test database connectivity
@@ -77,25 +78,40 @@ async def health_check(session: AsyncSession = Depends(get_session)) -> HealthRe
 
         if status == 1:
             logger.info("Health check passed: database connection OK")
-            return HealthResponse(
+            response_data = HealthResponse(
                 status="healthy",
                 message="Database connection successful",
                 timestamp=datetime.now(),
             )
+            return Response(
+                content=response_data.model_dump_json(),
+                status_code=200,
+                media_type="application/json",
+            )
         else:
             logger.warning("Health check failed: unexpected database response")
-            return HealthResponse(
+            response_data = HealthResponse(
                 status="unhealthy",
                 message="Unexpected database response",
                 timestamp=datetime.now(),
             )
+            return Response(
+                content=response_data.model_dump_json(),
+                status_code=503,
+                media_type="application/json",
+            )
 
     except Exception as e:
         logger.error("Health check failed: %s", e)
-        return HealthResponse(
+        response_data = HealthResponse(
             status="unhealthy",
             message=f"Database connection failed: {str(e)}",
             timestamp=datetime.now(),
+        )
+        return Response(
+            content=response_data.model_dump_json(),
+            status_code=503,
+            media_type="application/json",
         )
 
 
@@ -112,6 +128,7 @@ async def create_test_record(
     - Executing a SELECT statement to retrieve the data
     - Using async transactions with session.begin()
     - Session cleanup after completion
+    - Proper HTTP error handling with HTTPException
 
     Args:
         body: TestRecordCreate with message field
@@ -119,24 +136,15 @@ async def create_test_record(
 
     Returns:
         TestDataResponse with success status and the created record
+
+    Raises:
+        HTTPException: With status_code 500 if database operation fails
     """
     try:
         # Use explicit transaction for atomic operation
         async with session.begin():
-            # Create a temporary table for test data
-            await session.execute(
-                text(
-                    """
-                CREATE TABLE IF NOT EXISTS test_records (
-                    id SERIAL PRIMARY KEY,
-                    message TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-                )
-            )
-
             # Insert test record
+            # Note: Table is created in app startup (lifespan event)
             insert_query = text(
                 """
                 INSERT INTO test_records (message, created_at)
@@ -162,15 +170,15 @@ async def create_test_record(
                 )
             else:
                 logger.error("Failed to create test record: no result returned")
-                return TestDataResponse(
-                    success=False, message="Failed to create test record"
+                raise HTTPException(
+                    status_code=500, detail="Failed to create test record: no result returned"
                 )
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Error creating test record: %s", e)
-        return TestDataResponse(
-            success=False, message=f"Error creating test record: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error creating test record: {str(e)}")
 
 
 @router.get("/test", response_model=TestDataResponse)
@@ -183,11 +191,15 @@ async def list_test_records(
     This endpoint demonstrates:
     - Querying multiple records from the database
     - Using the dependency injection pattern
-    - Handling empty result sets
+    - Handling empty result sets (returns 200 OK with empty list)
     - Session automatic cleanup
+    - Proper HTTP error handling with HTTPException
 
     Returns:
-        TestDataResponse with list of all test records
+        TestDataResponse with list of all test records (200 OK even if empty)
+
+    Raises:
+        HTTPException: With status_code 500 if database query fails
     """
     try:
         # Query all test records
@@ -226,6 +238,4 @@ async def list_test_records(
 
     except Exception as e:
         logger.error("Error querying test records: %s", e)
-        return TestDataResponse(
-            success=False, message=f"Error querying test records: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error querying test records: {str(e)}")

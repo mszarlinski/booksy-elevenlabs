@@ -227,16 +227,17 @@ class TestDependencyInjection:
 class TestErrorHandling:
     """Tests for error handling in database routes."""
 
-    def test_health_check_graceful_error_handling(self, client: TestClient) -> None:
-        """Test that health check handles errors gracefully."""
+    def test_health_check_healthy_returns_200(self, client: TestClient) -> None:
+        """Test that health check returns 200 when healthy."""
         response = client.get("/db/health")
 
-        # Should always return 200 (even if connection fails)
+        # Should return 200 when database is healthy
         assert response.status_code == 200
         data = response.json()
 
         # Should include required fields
         assert "status" in data
+        assert data["status"] == "healthy"
         assert "message" in data
         assert "timestamp" in data
 
@@ -263,6 +264,43 @@ class TestErrorHandling:
         response = client.get("/db/nonexistent")
 
         assert response.status_code == 404
+
+    def test_create_record_returns_200_on_success(self, client: TestClient) -> None:
+        """Test that POST /db/test returns 200 OK on successful creation."""
+        payload = {"message": "Test record for success status"}
+
+        response = client.post("/db/test", json=payload)
+
+        # Should return 200 OK on success
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["records"] is not None
+        assert len(data["records"]) == 1
+
+    def test_list_records_returns_200_on_success(self, client: TestClient) -> None:
+        """Test that GET /db/test returns 200 OK on successful query."""
+        # First create a record
+        client.post("/db/test", json={"message": "Record for list success"})
+
+        # Then list records
+        response = client.get("/db/test")
+
+        # Should return 200 OK on success (even if no records found)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert isinstance(data["records"], list)
+
+    def test_list_records_returns_200_even_when_empty(self, client: TestClient) -> None:
+        """Test that GET /db/test returns 200 OK even with empty result set."""
+        response = client.get("/db/test")
+
+        # Should return 200 OK for empty list (not 5xx error)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert isinstance(data["records"], list)
 
 
 class TestOpenAPIDocumentation:
