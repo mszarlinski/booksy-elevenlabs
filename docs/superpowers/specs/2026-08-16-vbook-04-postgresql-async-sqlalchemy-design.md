@@ -17,6 +17,56 @@ VBOOK-06 (transactional booking, detecting overlaps, locking) is **not** part of
 ticket — VBOOK-04 only gets a working schema, engine, and plain CRUD repositories in
 place. VBOOK-06's design builds directly on top of what's specified here.
 
+## Architecture: ports and adapters at the database boundary
+
+Per explicit request: `AsyncSession`, SQLAlchemy models, and any other database-specific
+type must not leak into router/application code. This ticket applies a ports-and-adapters
+split **only at the repository boundary** — that's the one place a database session was
+about to leak into routers, and the one place the request is aimed at. It is deliberately
+not applied elsewhere: `app/idempotency.py` has no database dependency at all, and
+`app/slots.py` is a pure function — introducing a port/adapter split for either would be
+layering for its own sake.
+
+```text
+app/repositories/*.py      ← PORTS: typing.Protocol interfaces only.
+                              No sqlalchemy import, no AsyncSession, no ORM model import.
+                              Routers type-annotate against these.
+
+app/adapters/db/*.py       ← ADAPTERS: SQLAlchemy models, engine/session, and the
+                              SqlAlchemy*Repository classes implementing the ports above,
+                              plus the get_*_repository FastAPI dependency factories
+                              (the composition point — this is where a Protocol type gets
+                              bound to a concrete, session-backed implementation).
+
+app/routers/*.py           ← Import the port (for typing) from app.repositories.*, and
+                              the factory (for Depends(...)) from app.adapters.db.*.
+                              Never import sqlalchemy, AsyncSession, or an ORM model.
+```
+
+A router calling `Depends(get_service_repository)` still only ever sees a
+`ServiceRepository`-shaped object with `async def search(...)`/`get(...)` returning
+dicts — it has no way to reach into a `Session`, catch a SQLAlchemy exception type, or
+otherwise depend on *how* persistence works. That substitutability (a test could hand a
+router a fake in-memory `ServiceRepository` implementation with zero SQLAlchemy involved)
+is the actual payoff of the split, not just file organization.
+
+`app/repositories/services.py` (port):
+
+```python
+from typing import Protocol
+
+
+class ServiceRepository(Protocol):
+    async def search(self, name: str | None = None) -> list[dict[str, str | int | float]]: ...
+
+    async def get(self, service_id: str) -> dict[str, str | int | float]: ...
+```
+
+The other three ports (`BusinessRepository`, `EmployeeRepository`, `BookingRepository`)
+follow the same shape — one `Protocol` per file, method signatures matching today's
+`InMemory*Repository` methods exactly (same names, same dict-shaped returns), just made
+explicit instead of implicit duck-typing.
+
 ## Docker Compose & environment
 
 **`docker-compose.yml`** (new, repo root): one `db` service, `postgres:16`, with:
@@ -34,13 +84,13 @@ vars):
 DATABASE_URL=postgresql+asyncpg://booksy:booksy@localhost:5432/booksy
 TEST_DATABASE_URL=postgresql+asyncpg://booksy:booksy@localhost:5432/booksy_test
 ```
-`app/db.py` reads `DATABASE_URL` from the environment with the above as its default
-(so `uv run uvicorn app.main:app` works out of the box against the compose setup with
-zero configuration). Tests read `TEST_DATABASE_URL` the same way.
+`app/adapters/db/session.py` reads `DATABASE_URL` from the environment with the above as
+its default (so `uv run uvicorn app.main:app` works out of the box against the compose
+setup with zero configuration). Tests read `TEST_DATABASE_URL` the same way.
 
 ## Engine, session, and the FastAPI dependency
 
-**`app/db.py`** (new):
+**`app/adapters/db/session.py`** (new):
 
 ```python
 import os
@@ -74,7 +124,7 @@ boundary explicitly, rather than relying on session-level autocommit behavior.
 
 ## Data model
 
-**`app/models.py`** (new), SQLAlchemy 2.0 typed declarative style:
+**`app/adapters/db/models.py`** (new), SQLAlchemy 2.0 typed declarative style:
 
 ```python
 from sqlalchemy import ForeignKey, Table, Column
@@ -152,17 +202,22 @@ Notes:
 - `slot`/`status` stay plain `String` columns (no `Enum`/`DateTime` type upgrade) — out
   of scope; matches today's dict shape exactly to keep this a persistence-only change.
 
-## Repositories
+## Adapters (the SQLAlchemy side of each port)
 
-Each `SqlAlchemy*Repository` takes an `AsyncSession` in `__init__` and exposes the same
-method names as its in-memory predecessor, converting ORM rows to dicts before
-returning. Example (`app/repositories/services.py`):
+Each `SqlAlchemy*Repository` lives in `app/adapters/db/<name>.py`, takes an
+`AsyncSession` in `__init__`, and implements the corresponding port from
+`app/repositories/<name>.py` structurally (Protocol conformance needs no explicit
+`implements`/inheritance — matching method signatures is sufficient, and a type checker
+would flag a mismatch). Methods convert ORM rows to dicts before returning, exactly like
+the ports declare. Example (`app/adapters/db/services.py`):
 
 ```python
+from fastapi import Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Service
+from app.adapters.db.models import Service
+from app.adapters.db.session import get_session
 
 
 def _to_dict(service: Service) -> dict[str, str | int | float]:
@@ -198,7 +253,12 @@ def get_service_repository(
     return SqlAlchemyServiceRepository(session)
 ```
 
-`InMemoryEmployeeRepository.search(service_id=...)` becomes a join through
+`get_service_repository` is the composition point — the only place a concrete,
+session-backed class gets bound to the port. It lives in the adapter module (not the
+port module) precisely because it needs to know about `AsyncSession`/`get_session`;
+the port module never does.
+
+`SqlAlchemyEmployeeRepository.search(service_id=...)` becomes a join through
 `employee_services` (`select(Employee).join(Employee.services).where(Service.id ==
 service_id)`), exercising the ticket's "joins"/"relationships" learning objectives
 directly.
@@ -225,32 +285,67 @@ async def add(
 ```
 
 `cancel`/`reschedule`/`get` follow the same `session.get(Booking, booking_id)` +
-`KeyError` pattern as `get_service_repository.get` above, preserving the existing
-`except KeyError: raise HTTPException(404, ...)` handling in routers unchanged.
+`KeyError` pattern as `SqlAlchemyServiceRepository.get` above — `KeyError` is a builtin,
+not a database-specific type, so the existing `except KeyError: raise
+HTTPException(404, ...)` handling in routers is preserved unchanged and stays
+database-agnostic.
 
-Routers change only by adding `async`/`await` (e.g. `async def search_services(...)`,
-`services = await repository.search(name)`) — no signature or response-shape changes.
+## Router wiring
+
+Routers import the **port** (for typing) from `app.repositories.*` and the **factory**
+(for `Depends(...)`) from `app.adapters.db.*`. They otherwise change only by adding
+`async`/`await` — no signature or response-shape changes. Example
+(`app/routers/services.py`):
+
+```python
+from fastapi import APIRouter, Depends
+
+from app.adapters.db.services import get_service_repository
+from app.repositories.services import ServiceRepository
+
+router = APIRouter()
+
+
+@router.get("/services")
+async def search_services(
+    name: str | None = None,
+    repository: ServiceRepository = Depends(get_service_repository),
+) -> dict[str, list[dict[str, str | int | float]]]:
+    services = await repository.search(name)
+    return {"services": services}
+```
+
+Nothing under `app/routers/` imports `sqlalchemy`, `AsyncSession`, or an ORM model —
+that import boundary is the concrete, checkable form of "no database session bleeds
+into application logic."
 
 ## Migrations
 
 Alembic, initialized with the **async template** (`alembic init -t async alembic`), so
 `alembic/env.py` runs migrations through an async engine/connection — consistent with
-the rest of the app rather than dropping to a sync driver just for migrations. One
-initial migration (`alembic revision --autogenerate`) creates `businesses`, `services`,
-`employees`, `employee_services`, and `bookings` with their columns, primary keys,
-foreign keys, and the `employee_services` composite primary key. `alembic upgrade head`
-against the `booksy` database is a documented manual step (README), not run
-automatically by the app.
+the rest of the app rather than dropping to a sync driver just for migrations.
+`alembic/env.py` imports `target_metadata` from `app.adapters.db.models` (the one place
+outside `app/adapters/` that legitimately needs to know the ORM models exist — migration
+tooling is infrastructure, not application logic). One initial migration (`alembic
+revision --autogenerate`) creates `businesses`, `services`, `employees`,
+`employee_services`, and `bookings` with their columns, primary keys, foreign keys, and
+the `employee_services` composite primary key. `alembic upgrade head` against the
+`booksy` database is a documented manual step (README), not run automatically by the
+app.
 
 ## Seed script
 
-**`scripts/seed_db.py`** (new, async): connects via `AsyncSessionLocal`, checks whether
-`businesses` already has rows (`select(func.count()).select_from(Business)`), and if
-not, inserts the same seed data currently hardcoded across the in-memory repositories —
-2 businesses, 3 services, 6 employees (with their `employee_services` links matching
-today's `service_ids` lists). Idempotent by that emptiness check, so re-running it after
-data already exists is a no-op rather than a duplicate-key error. Run manually via `uv
-run python -m scripts.seed_db`; never invoked from `app/main.py`.
+**`scripts/seed_db.py`** (new, async): connects via `AsyncSessionLocal`
+(`app.adapters.db.session`), checks whether `businesses` already has rows
+(`select(func.count()).select_from(Business)`), and if not, inserts the same seed data
+currently hardcoded across the in-memory repositories — 2 businesses, 3 services, 6
+employees (with their `employee_services` links matching today's `service_ids` lists),
+using the ORM models from `app.adapters.db.models`. Idempotent by that emptiness check,
+so re-running it after data already exists is a no-op rather than a duplicate-key error.
+Run manually via `uv run python -m scripts.seed_db`; never invoked from `app/main.py`.
+Like the migration tooling, this script is infrastructure and is allowed to import the
+adapter layer directly — the ports/adapters boundary applies to application code
+(routers), not one-off operational scripts.
 
 ## Testing
 
@@ -295,9 +390,9 @@ import os
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from app.db import get_session
+from app.adapters.db.models import Base
+from app.adapters.db.session import get_session
 from app.main import app
-from app.models import Base
 from tests.seed_data import seed_reference_data  # shared with scripts/seed_db.py
 
 TEST_DATABASE_URL = os.environ.get(
@@ -362,3 +457,5 @@ is a pure function with no DB dependency. `test_idempotency.py` needs no changes
 - `slot`/`status` type upgrades (e.g. real `DateTime`/`Enum` columns) — the schema
   mirrors today's string-typed dict fields exactly.
 - Connection pool tuning, read replicas, or any other production-hardening concern.
+- Applying the ports/adapters split beyond the four repositories — `app/idempotency.py`
+  and `app/slots.py` have no database dependency and are deliberately left as-is.
