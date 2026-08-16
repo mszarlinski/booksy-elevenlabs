@@ -10,7 +10,7 @@ def test_search_employees_returns_seeded_employees_when_no_filter():
 
     assert response.status_code == 200
     names = {employee["name"] for employee in response.json()["employees"]}
-    assert names == {"Alice", "Bob"}
+    assert names == {"Alice", "Bob", "Carol", "Dave", "Erin", "Frank"}
 
 
 def test_search_employees_filters_by_service_id():
@@ -18,7 +18,7 @@ def test_search_employees_filters_by_service_id():
 
     assert response.status_code == 200
     employees = response.json()["employees"]
-    assert [employee["name"] for employee in employees] == ["Alice"]
+    assert {employee["name"] for employee in employees} == {"Alice", "Erin", "Frank"}
 
 
 def test_search_employees_returns_empty_list_for_unknown_service():

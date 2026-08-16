@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
@@ -22,6 +24,6 @@ def create_business(
     business: BusinessHttpBody,
     repository: InMemoryBusinessRepository = Depends(get_business_repository),
 ) -> dict[str, str]:
-    created = {"name": business.name}
+    created = {"id": str(uuid4()), "name": business.name}
     repository.add(created)
     return created

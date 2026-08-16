@@ -7,12 +7,38 @@ class InMemoryEmployeeRepository:
             {
                 "id": "emp-alice",
                 "name": "Alice",
+                "business_id": "biz-glow-salon",
                 "service_ids": ["svc-haircut", "svc-shave"],
+            },
+            {
+                "id": "emp-carol",
+                "name": "Carol",
+                "business_id": "biz-glow-salon",
+                "service_ids": ["svc-manicure"],
+            },
+            {
+                "id": "emp-dave",
+                "name": "Dave",
+                "business_id": "biz-glow-salon",
+                "service_ids": ["svc-manicure"],
             },
             {
                 "id": "emp-bob",
                 "name": "Bob",
+                "business_id": "biz-downtown-barber",
                 "service_ids": ["svc-haircut", "svc-manicure"],
+            },
+            {
+                "id": "emp-erin",
+                "name": "Erin",
+                "business_id": "biz-downtown-barber",
+                "service_ids": ["svc-shave"],
+            },
+            {
+                "id": "emp-frank",
+                "name": "Frank",
+                "business_id": "biz-downtown-barber",
+                "service_ids": ["svc-shave"],
             },
         ]
 
