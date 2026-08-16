@@ -35,12 +35,17 @@ create_booking(...)
 
 ## TODO
 
-* [ ] Add `create_booking` ElevenLabs tool
-* [ ] Define required arguments
-* [ ] Require explicit user confirmation
-* [ ] Prevent accidental execution during slot exploration
-* [ ] Pass an idempotency key
-* [ ] Handle slot becoming unavailable after confirmation
+* [x] Add `create_booking` ElevenLabs tool
+* [x] Define required arguments
+* [x] Require explicit user confirmation (backend-enforced `confirmed: bool`, reinforced
+      by the system prompt)
+* [x] Prevent accidental execution during slot exploration (same `confirmed` gate, plus
+      explicit tool-description wording not to call it speculatively)
+* [ ] Pass an idempotency key — `POST /bookings` supports `Idempotency-Key`, but the
+      ElevenLabs `create_booking` tool config doesn't set the header, so voice-driven
+      calls don't get idempotency protection yet
+* [ ] Handle slot becoming unavailable after confirmation — deferred to
+      [VBOOK-15](VBOOK-15-add-booking-holds-for-safer-voice-confirmation.md)'s hold/confirm design
 * [ ] Have the agent offer alternatives
 * [ ] Handle ambiguous responses such as:
 
@@ -48,8 +53,11 @@ create_booking(...)
   * “okay”
   * “maybe”
   * “actually no”
+
+  (currently only addressed via system-prompt wording, not deterministically)
 * [ ] Add conversation-level tests
-* [ ] Store tool execution audit records
+* [ ] Store tool execution audit records (currently just `logger.info` request/response
+      lines, not durable records)
 
 ## Learning objectives
 

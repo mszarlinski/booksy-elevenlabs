@@ -27,10 +27,14 @@ FastAPI (this repo, running in Docker)
       └─ app/slots.py           — pure availability/slot-generation logic
 ```
 
-The agent currently has five **read-only** tools registered (`search_services`,
-`search_employees`, `search_available_slots`, `get_booking`, `get_customer_bookings`) —
-see [`docs/adr/0001-elevenlabs-tool-layer-architecture.md`](docs/adr/0001-elevenlabs-tool-layer-architecture.md)
-for why. Voice-driven booking *creation* is a later story (VBOOK-10).
+The agent has five **read-only** tools (`search_services`, `search_employees`,
+`search_available_slots`, `get_booking`, `get_customer_bookings`) — see
+[`docs/adr/0001-elevenlabs-tool-layer-architecture.md`](docs/adr/0001-elevenlabs-tool-layer-architecture.md)
+for why — plus one mutating tool, `create_booking`, gated on a backend-enforced
+`confirmed: true` flag so the agent can only create a booking after reading the
+details back and getting an explicit yes (VBOOK-10). That gate is prompt-engineered,
+not platform-enforced by ElevenLabs; a structurally safer hold/confirm flow is tracked
+as VBOOK-15.
 
 ## Tech stack
 
@@ -116,8 +120,9 @@ default — expect it to guess dates unless you give it that context.
 
 This is a learning project, built incrementally per [`docs/BACKLOG.md`](docs/BACKLOG.md).
 As of now: FastAPI skeleton, in-memory booking domain, idempotent mutations, and
-read-only ElevenLabs tool integration are done. Real persistence (PostgreSQL) and
-voice-driven booking creation are upcoming stories — see the backlog for the full plan.
+read-only plus confirmed-booking-creation ElevenLabs tool integration are done
+(VBOOK-01–10). Real persistence (PostgreSQL) and a structurally safer hold/confirm
+booking flow are upcoming stories — see the backlog for the full plan.
 
 ## License
 
