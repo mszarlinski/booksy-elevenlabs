@@ -10,7 +10,7 @@ This module contains declarative ORM models that map to database tables:
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String, DateTime, Text
+from sqlalchemy import Column, ForeignKey, Integer, String, DateTime, Text
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -27,9 +27,9 @@ class Business(Base):
 
     __tablename__ = "businesses"
 
-    id = String(36, primary_key=True)
-    name = String(255, nullable=False)
-    description = Text(nullable=True)
+    id = Column(String(36), primary_key=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
 
     # Relationships
     employees = relationship(
@@ -57,11 +57,11 @@ class Employee(Base):
 
     __tablename__ = "employees"
 
-    id = String(36, primary_key=True)
-    business_id = String(36, ForeignKey("businesses.id"), nullable=False)
-    name = String(255, nullable=False)
-    email = String(255, nullable=True)
-    phone = String(20, nullable=True)
+    id = Column(String(36), primary_key=True)
+    business_id = Column(String(36), ForeignKey("businesses.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=True)
+    phone = Column(String(20), nullable=True)
 
     # Relationships
     business = relationship(
@@ -88,10 +88,10 @@ class Service(Base):
 
     __tablename__ = "services"
 
-    id = String(36, primary_key=True)
-    business_id = String(36, ForeignKey("businesses.id"), nullable=False)
-    name = String(255, nullable=False)
-    duration_minutes = Integer(nullable=False)
+    id = Column(String(36), primary_key=True)
+    business_id = Column(String(36), ForeignKey("businesses.id"), nullable=False)
+    name = Column(String(255), nullable=False)
+    duration_minutes = Column(Integer, nullable=False)
 
     # Relationships
     business = relationship(
@@ -118,13 +118,13 @@ class Booking(Base):
 
     __tablename__ = "bookings"
 
-    id = String(36, primary_key=True)
-    customer_name = String(255, nullable=False)
-    customer_email = String(255, nullable=True)
-    service_id = String(36, ForeignKey("services.id"), nullable=False)
-    employee_id = String(36, ForeignKey("employees.id"), nullable=True)
-    start_time = DateTime(nullable=False)
-    status = String(50, nullable=False, default="pending")
+    id = Column(String(36), primary_key=True)
+    customer_name = Column(String(255), nullable=False)
+    customer_email = Column(String(255), nullable=True)
+    service_id = Column(String(36), ForeignKey("services.id"), nullable=False)
+    employee_id = Column(String(36), ForeignKey("employees.id"), nullable=True)
+    start_time = Column(DateTime, nullable=False)
+    status = Column(String(50), nullable=False, default="pending")
 
     # Relationships
     service = relationship(

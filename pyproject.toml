@@ -10,6 +10,7 @@ dependencies = [
     "python-dotenv>=1.0,<2.0",
     "sqlalchemy>=2.0,<2.1",
     "asyncpg>=0.29,<0.30",
+    "alembic>=1.13,<1.14",
 ]
 
 [dependency-groups]
