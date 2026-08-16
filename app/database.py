@@ -9,6 +9,7 @@ This module provides:
 
 import os
 from typing import AsyncGenerator
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -19,18 +20,65 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
 
 
+def _is_valid_database_url(url: str) -> bool:
+    """
+    Validate that the database URL is properly formatted for PostgreSQL asyncpg.
+
+    Args:
+        url: The database URL to validate
+
+    Returns:
+        True if valid, False otherwise
+    """
+    try:
+        parsed = urlparse(url)
+
+        # Check scheme is postgresql+asyncpg
+        if parsed.scheme != "postgresql+asyncpg":
+            return False
+
+        # Check required components: username, password, hostname, port, database
+        # Note: Both username and password are required for secure database connections
+        if not all([parsed.username, parsed.password, parsed.hostname, parsed.port]):
+            return False
+
+        # Validate port is in valid range
+        if not (1 <= parsed.port <= 65535):
+            return False
+
+        # Database name from path (should be /database_name)
+        db_name = parsed.path.lstrip("/")
+        if not db_name:
+            return False
+
+        return True
+    except Exception:
+        return False
+
+
 def _get_database_url() -> str:
     """
     Get database URL from environment or construct from individual components.
 
     Returns:
         The database URL string for asyncpg connection
+
+    Raises:
+        ValueError: If DATABASE_URL is invalid or required components are missing
     """
     if database_url := os.getenv("DATABASE_URL"):
         # If DATABASE_URL is set, convert to async if using postgresql://
         # (docker-compose sets this with postgresql://, not postgresql+asyncpg://)
         if database_url.startswith("postgresql://"):
-            return database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            database_url = database_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+        # Validate the URL format
+        if not _is_valid_database_url(database_url):
+            raise ValueError(
+                f"Invalid DATABASE_URL format. Expected: "
+                f"postgresql+asyncpg://user:password@host:port/database. "
+                f"Got: {database_url}"
+            )
         return database_url
 
     # Fallback: construct from individual environment variables (for local dev)
@@ -40,6 +88,25 @@ def _get_database_url() -> str:
     postgres_port = os.getenv("POSTGRES_PORT", "5432")
     postgres_db = os.getenv("POSTGRES_DB", "booksy")
 
+    # Validate required components
+    if not postgres_user or not postgres_host or not postgres_db:
+        raise ValueError(
+            "Missing required database configuration. "
+            "Please set POSTGRES_USER, POSTGRES_HOST, and POSTGRES_DB environment variables."
+        )
+
+    # Validate port
+    try:
+        port = int(postgres_port)
+        if not (1 <= port <= 65535):
+            raise ValueError(f"Invalid POSTGRES_PORT: {port}. Port must be between 1 and 65535.")
+    except ValueError as e:
+        if "invalid literal" in str(e):
+            raise ValueError(
+                f"Invalid POSTGRES_PORT: {postgres_port}. Port must be a valid integer."
+            ) from e
+        raise
+
     return f"postgresql+asyncpg://{postgres_user}:{postgres_password}@{postgres_host}:{postgres_port}/{postgres_db}"
 
 
@@ -47,16 +114,39 @@ def _create_engine() -> AsyncEngine:
     """
     Create and configure AsyncEngine for async database operations.
 
-    Connection pooling configuration:
-    - pool_size: 10 (connections kept in pool for reuse)
-    - max_overflow: 10 (additional connections created when pool is exhausted)
-    - pool_recycle: 3600 (recycle connections after 1 hour to avoid stale connections)
-    - pool_pre_ping: True (test connections before using to detect dead connections)
+    Connection pooling configuration (configurable via environment variables):
+    - pool_size: connections kept in pool for reuse (default: 10)
+    - max_overflow: additional connections created when pool is exhausted (default: 10)
+    - pool_recycle: recycle connections after N seconds (default: 3600 = 1 hour)
+    - pool_pre_ping: test connections before using to detect dead connections (always: True)
+
+    Environment variables:
+    - DB_POOL_SIZE: Number of connections to keep in pool (default: 10)
+    - DB_MAX_OVERFLOW: Additional connections above pool_size (default: 10)
+    - DB_POOL_RECYCLE: Seconds before recycling connections (default: 3600)
 
     Returns:
         Configured AsyncEngine instance
+
+    Raises:
+        ValueError: If pool configuration values are invalid
     """
     database_url = _get_database_url()
+
+    # Parse pool configuration from environment with sensible defaults
+    try:
+        pool_size = int(os.getenv("DB_POOL_SIZE", "10"))
+        max_overflow = int(os.getenv("DB_MAX_OVERFLOW", "10"))
+        pool_recycle = int(os.getenv("DB_POOL_RECYCLE", "3600"))
+    except ValueError as e:
+        raise ValueError(f"Invalid pool configuration: {e}") from e
+
+    if pool_size <= 0:
+        raise ValueError(f"DB_POOL_SIZE must be positive, got: {pool_size}")
+    if max_overflow < 0:
+        raise ValueError(f"DB_MAX_OVERFLOW must be non-negative, got: {max_overflow}")
+    if pool_recycle <= 0:
+        raise ValueError(f"DB_POOL_RECYCLE must be positive, got: {pool_recycle}")
 
     # Determine pooling strategy based on environment
     # Use NullPool for testing to avoid connection persistence issues
@@ -78,9 +168,9 @@ def _create_engine() -> AsyncEngine:
         engine = create_async_engine(
             database_url,
             echo=os.getenv("SQL_ECHO", "true").lower() == "true",  # Log SQL queries
-            pool_size=10,  # Connections to keep in pool
-            max_overflow=10,  # Additional connections above pool_size
-            pool_recycle=3600,  # Recycle connections after 1 hour
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            pool_recycle=pool_recycle,
             pool_pre_ping=True,  # Test connections before use
         )
     return engine
